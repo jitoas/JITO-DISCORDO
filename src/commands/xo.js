@@ -18,9 +18,6 @@ export const xoCommand = {
     .addUserOption((option) =>
       option
         .setName('opponent')
-        .setNameLocalizations({
-          'ar': 'المنافس',
-        })
         .setDescription('العضو الذي تريد تحديه (اختياري: إن لم تحدد سيفتح لوبي مفتوح)')
         .setDescriptionLocalizations({
           'en-US': 'The member you want to challenge (optional)',
