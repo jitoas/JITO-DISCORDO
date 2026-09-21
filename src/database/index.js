@@ -110,7 +110,10 @@ class DatabaseManager {
 
       // Handle background pool client errors without crashing
       this.pool.on('error', (err) => {
-        logger.warn('PostgreSQL Pool background client warning:', err.message);
+        logger.warn(
+          `PostgreSQL Pool background client warning ➔ [${err.name || 'Error'}] ${err.message}${err.code ? ` (Code: ${err.code})` : ''}`,
+          err
+        );
       });
 
       // Verify connection
@@ -153,7 +156,18 @@ class DatabaseManager {
       this.isInitialized = true;
     } catch (err) {
       this.isPostgresConnected = false;
-      logger.error('⚠️ تعذر الاتصال بـ PostgreSQL (سيستمر البوت بالعمل باستخدام التخزين المحلي):', err.message);
+      const errorDetails = [
+        err.name ? `Type: ${err.name}` : null,
+        err.code ? `Code: ${err.code}` : null,
+        err.message ? `Message: ${err.message}` : null,
+        err.detail ? `Detail: ${err.detail}` : null,
+        err.hint ? `Hint: ${err.hint}` : null,
+      ].filter(Boolean).join(' | ');
+
+      logger.error(
+        `⚠️ تعذر الاتصال بـ PostgreSQL (سيستمر البوت بالعمل باستخدام التخزين المحلي) ➔ ${errorDetails}`,
+        err
+      );
     }
   }
 
@@ -351,7 +365,10 @@ class DatabaseManager {
         flagsWin,
         xoWin
       ]).catch((err) => {
-        logger.warn('خطأ أثناء حفظ النتيجة في PostgreSQL:', err.message);
+        logger.warn(
+          `خطأ أثناء حفظ النتيجة في PostgreSQL ➔ [${err.name || 'Error'}] ${err.message}${err.code ? ` (Code: ${err.code})` : ''}`,
+          err
+        );
       });
     }
 
@@ -404,7 +421,12 @@ class DatabaseManager {
 
       if (this.pool && this.isPostgresConnected) {
         this.pool.query('DELETE FROM jafar_scores WHERE guild_id = $1;', [guildId])
-          .catch((err) => logger.warn('خطأ أثناء تصفير النقاط في PostgreSQL:', err.message));
+          .catch((err) =>
+            logger.warn(
+              `خطأ أثناء تصفير النقاط في PostgreSQL ➔ [${err.name || 'Error'}] ${err.message}${err.code ? ` (Code: ${err.code})` : ''}`,
+              err
+            )
+          );
       }
       return true;
     }
