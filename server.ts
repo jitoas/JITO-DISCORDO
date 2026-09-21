@@ -44,6 +44,7 @@ async function startServer() {
     const status = getBotStatus();
     res.json({
       ...status,
+      database: db.getStatus(),
       hasToken: Boolean(process.env.DISCORD_TOKEN && process.env.DISCORD_TOKEN !== 'YOUR_DISCORD_BOT_TOKEN'),
       hasClientId: Boolean(process.env.DISCORD_CLIENT_ID && process.env.DISCORD_CLIENT_ID !== 'YOUR_DISCORD_APPLICATION_CLIENT_ID'),
       botName: config.bot.name,

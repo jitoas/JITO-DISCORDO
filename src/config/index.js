@@ -69,6 +69,7 @@ export const config = {
 
   // Database / Storage Settings
   storage: {
+    databaseUrl: process.env.DATABASE_URL || '',
     dataPath: './data',
     scoresFile: './data/scores.json',
     settingsFile: './data/settings.json',

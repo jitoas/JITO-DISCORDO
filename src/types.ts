@@ -17,6 +17,11 @@ export interface BotStatus {
   hasClientId: boolean;
   botName: string;
   version: string;
+  database?: {
+    type: string;
+    isPostgresConnected: boolean;
+    hasDatabaseUrl: boolean;
+  };
 }
 
 export interface PlayerScore {
