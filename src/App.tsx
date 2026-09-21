@@ -6,13 +6,14 @@
 import React, { useState, useEffect } from 'react';
 import Header from './components/Header.tsx';
 import DiscordGameSimulator from './components/DiscordGameSimulator.tsx';
+import GamesRegistryView from './components/GamesRegistryView.tsx';
 import LeaderboardView from './components/LeaderboardView.tsx';
 import ConfigPanel from './components/ConfigPanel.tsx';
 import SetupGuide from './components/SetupGuide.tsx';
 import { BotStatus } from './types.ts';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'simulator' | 'leaderboard' | 'config' | 'guide'>('simulator');
+  const [activeTab, setActiveTab] = useState<'simulator' | 'registry' | 'leaderboard' | 'config' | 'guide'>('simulator');
   const [botStatus, setBotStatus] = useState<BotStatus | null>(null);
 
   const fetchStatus = async () => {
@@ -45,6 +46,10 @@ export default function App() {
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {activeTab === 'simulator' && (
           <DiscordGameSimulator onWinRecorded={fetchStatus} />
+        )}
+
+        {activeTab === 'registry' && (
+          <GamesRegistryView />
         )}
 
         {activeTab === 'leaderboard' && (

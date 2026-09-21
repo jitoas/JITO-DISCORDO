@@ -1,11 +1,11 @@
 import React from 'react';
 import { BotStatus } from '../types.js';
-import { Bot, Gamepad2, Trophy, Settings, BookOpen, Wifi, ShieldAlert, Sparkles } from 'lucide-react';
+import { Bot, Gamepad2, Trophy, Settings, BookOpen, Wifi, ShieldAlert, Sparkles, LayoutGrid } from 'lucide-react';
 
 interface HeaderProps {
   status: BotStatus | null;
-  activeTab: 'simulator' | 'leaderboard' | 'config' | 'guide';
-  setActiveTab: (tab: 'simulator' | 'leaderboard' | 'config' | 'guide') => void;
+  activeTab: 'simulator' | 'registry' | 'leaderboard' | 'config' | 'guide';
+  setActiveTab: (tab: 'simulator' | 'registry' | 'leaderboard' | 'config' | 'guide') => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({ status, activeTab, setActiveTab }) => {
@@ -87,6 +87,19 @@ export const Header: React.FC<HeaderProps> = ({ status, activeTab, setActiveTab 
             >
               <Gamepad2 className="w-4 h-4" />
               <span>المحاكي التفاعلي</span>
+            </button>
+
+            <button
+              id="nav-registry-tab"
+              onClick={() => setActiveTab('registry')}
+              className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs sm:text-sm font-medium transition-all ${
+                activeTab === 'registry'
+                  ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-600/50'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
+              }`}
+            >
+              <LayoutGrid className="w-4 h-4" />
+              <span>سجل الألعاب (!العاب)</span>
             </button>
 
             <button

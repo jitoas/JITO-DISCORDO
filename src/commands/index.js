@@ -6,17 +6,21 @@
 import pingCommand from './ping.js';
 import reverseCommand from './reverse.js';
 import flagsCommand from './flags.js';
+import harfCommand from './harf.js';
 import xoCommand from './xo.js';
 import leaderboardCommand from './leaderboard.js';
 import helpCommand from './help.js';
+import gamesCommand from './games.js';
 import config from '../config/index.js';
 import logger from '../utils/logger.js';
 
 export const commandsList = [
   reverseCommand,
   flagsCommand,
+  harfCommand,
   xoCommand,
   leaderboardCommand,
+  gamesCommand,
   pingCommand,
   helpCommand,
 ];
@@ -91,7 +95,7 @@ export async function handleMessage(message) {
   } else {
     // 2. Also support direct Arabic commands without exclamation mark if enabled
     const firstWord = content.split(/\s+/)[0].toLowerCase();
-    if (['اعكس', 'اعلام', 'أعلام', 'نقاط', 'النقاط', 'مساعدة'].includes(firstWord)) {
+    if (['اعكس', 'اعلام', 'أعلام', 'حرف', 'الحرف', 'نقاط', 'النقاط', 'مساعدة', 'العاب', 'ألعاب', 'الالعاب', 'الألعاب', 'games'].includes(firstWord)) {
       commandKey = firstWord;
     }
   }

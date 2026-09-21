@@ -127,3 +127,45 @@ export function checkReverseMatch(userInput, originalWord) {
   const normExpected = normalizeArabic(expectedReverse);
   return normInput === normExpected;
 }
+
+/**
+ * Checks if user's input is a valid answer for the target letter and category.
+ * @param {string} userInput 
+ * @param {string} targetLetter 
+ * @param {string[]} validAnswers 
+ * @returns {boolean}
+ */
+export function checkHarfAnswer(userInput, targetLetter, validAnswers = []) {
+  if (!userInput || !targetLetter || !validAnswers || validAnswers.length === 0) return false;
+
+  const rawInput = userInput.trim();
+  const userNorm = normalizeArabic(rawInput);
+  const userWithoutAl = stripDefiniteArticle(rawInput);
+  const letterNorm = normalizeArabic(targetLetter);
+
+  // 1. Verify that the answer starts with the target letter (or with 'ال' + target letter)
+  const startsDirectly = userNorm.startsWith(letterNorm);
+  const startsAfterAl = userWithoutAl.startsWith(letterNorm);
+
+  if (!startsDirectly && !startsAfterAl) {
+    return false;
+  }
+
+  // 2. Check if user input matches any of the accepted valid answers
+  for (const answer of validAnswers) {
+    const ansNorm = normalizeArabic(answer);
+    const ansWithoutAl = stripDefiniteArticle(answer);
+
+    if (
+      userNorm === ansNorm ||
+      userWithoutAl === ansWithoutAl ||
+      userWithoutAl === ansNorm ||
+      userNorm === ansWithoutAl
+    ) {
+      return true;
+    }
+  }
+
+  return false;
+}
+

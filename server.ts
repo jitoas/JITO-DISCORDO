@@ -12,8 +12,10 @@ import { startBot, getBotStatus } from './src/index.js';
 import db from './src/database/index.js';
 import { getRandomReverseWord, ARABIC_WORDS } from './src/games/datasets/words.js';
 import { getRandomCountry, COUNTRIES } from './src/games/datasets/countries.js';
-import { reverseArabicText, checkReverseMatch, matchesArabicAnswer, normalizeArabic } from './src/utils/arabicNormalizer.js';
+import { getRandomHarfRound, CATEGORIES } from './src/games/datasets/categories.js';
+import { reverseArabicText, checkReverseMatch, matchesArabicAnswer, checkHarfAnswer, normalizeArabic } from './src/utils/arabicNormalizer.js';
 import { checkXOWinner, isXOBoardFull } from './src/games/xoGame.js';
+import { GAME_REGISTRY, getAllGames, getAvailableGames } from './src/games/registry.js';
 import { deploySlashCommands } from './src/deploy-commands.js';
 import logger from './src/utils/logger.js';
 
@@ -200,6 +202,48 @@ async function startServer() {
     });
   });
 
+  // Simulator Endpoints: Test "حرف"
+  app.get('/api/simulate/harf/random', (req, res) => {
+    const round = getRandomHarfRound();
+    res.json({
+      letter: round.letter,
+      category: round.category,
+      timerSeconds: config.games.harf?.timerSeconds || 15,
+      points: config.games.harf?.pointsPerWin || 10,
+      validAnswersCount: round.validAnswers.length,
+      sampleValidAnswers: round.validAnswers.slice(0, 3),
+    });
+  });
+
+  app.post('/api/simulate/harf/check', (req, res) => {
+    const { input, letter, categoryId, playerName, guildId = 'demo-server' } = req.body || {};
+    if (!input || !letter) {
+      return res.status(400).json({ error: 'Missing input or letter' });
+    }
+
+    const round = getRandomHarfRound();
+    // Use category-specific answers or round answers
+    const validAnswers = round.validAnswers;
+    const isCorrect = checkHarfAnswer(input, letter, validAnswers);
+
+    if (isCorrect) {
+      const points = config.games.harf?.pointsPerWin || 10;
+      const user = db.addWin(guildId, playerName || 'مستخدم تجريبي', playerName || 'مستخدم تجريبي', 'harf', points);
+      return res.json({
+        correct: true,
+        letter,
+        points,
+        user,
+      });
+    }
+
+    res.json({
+      correct: false,
+      letter,
+      normalizedInput: normalizeArabic(input),
+    });
+  });
+
   // Simulator Endpoints: Test "XO"
   app.post('/api/simulate/xo/move', (req, res) => {
     try {
@@ -241,6 +285,16 @@ async function startServer() {
     }
   });
 
+  // Central Game Registry Explorer
+  app.get('/api/registry/games', (req, res) => {
+    res.json({
+      totalCount: GAME_REGISTRY.length,
+      availableCount: getAvailableGames().length,
+      games: GAME_REGISTRY,
+      availableGames: getAvailableGames(),
+    });
+  });
+
   // Datasets Explorer
   app.get('/api/datasets', (req, res) => {
     res.json({
@@ -248,6 +302,8 @@ async function startServer() {
       sampleWords: ARABIC_WORDS.slice(0, 15),
       countriesCount: COUNTRIES.length,
       sampleCountries: COUNTRIES.slice(0, 15),
+      categoriesCount: CATEGORIES.length,
+      categories: CATEGORIES,
     });
   });
 

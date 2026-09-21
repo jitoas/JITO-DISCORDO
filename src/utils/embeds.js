@@ -4,6 +4,7 @@
 
 import { EmbedBuilder } from 'discord.js';
 import config from '../config/index.js';
+import { getGamesByType } from '../games/registry.js';
 
 export const embeds = {
   /**
@@ -41,6 +42,22 @@ export const embeds = {
       )
       .setImage(flagUrl)
       .setFooter({ text: `بوت جعفر • لعبة خمن العلم` })
+      .setTimestamp();
+  },
+
+  /**
+   * Embed for لعبة حرف (Letter & Category Game)
+   */
+  harfGame: (letter, categoryObj, timerSeconds) => {
+    return new EmbedBuilder()
+      .setColor(config.colors.gameHarf || 0x2ECC71)
+      .setTitle('🔤 **حرف**')
+      .setDescription(
+        `**الحرف:** ${letter}\n` +
+        `**التصنيف:** ${categoryObj.name} ${categoryObj.emoji || ''}\n` +
+        `⏱️ **الوقت:** ${timerSeconds} ثانية`
+      )
+      .setFooter({ text: `بوت جعفر • لعبة حرف • أسرع إجابة صحيحة تفوز!` })
       .setTimestamp();
   },
 
@@ -131,12 +148,12 @@ export const embeds = {
     
     let description = '';
     if (!topPlayers || topPlayers.length === 0) {
-      description = 'لا توجد نقاط مسجلة في هذا السيرفر حتى الآن!\nابدأ بلعب `/reverse` أو `/flags` أو `/xo` لتتصدر القائمة!';
+      description = 'لا توجد نقاط مسجلة في هذا السيرفر حتى الآن!\nابدأ بلعب `/reverse` أو `/flags` أو `/harf` أو `/xo` لتتصدر القائمة!';
     } else {
       description = topPlayers
         .map((p, idx) => {
           const medal = medals[idx] || `${idx + 1}.`;
-          return `${medal} **${p.username}** — **${p.points}** نقطة \`(${p.totalWins} فوز: 🔄 ${p.games?.reverse || 0} | 🚩 ${p.games?.flags || 0} | 🎮 ${p.games?.xo || 0})\``;
+          return `${medal} **${p.username}** — **${p.points}** نقطة \`(${p.totalWins} فوز: 🔄 ${p.games?.reverse || 0} | 🚩 ${p.games?.flags || 0} | 🔤 ${p.games?.harf || 0} | 🎮 ${p.games?.xo || 0})\``;
         })
         .join('\n\n');
     }
@@ -146,6 +163,35 @@ export const embeds = {
       .setTitle(`📊 لوحة الشرف ونقاط السيرفر — ${guildName}`)
       .setDescription(description)
       .setFooter({ text: `بوت جعفر • الترتيب يتحدث تلقائياً مع كل فوز` })
+      .setTimestamp();
+  },
+
+  /**
+   * Embed for قائمة الألعاب (Games List)
+   * Displays all currently available games dynamically from central Registry.
+   */
+  gamesList: () => {
+    const soloAvailable = getGamesByType('solo', 'available');
+    const multiplayerAvailable = getGamesByType('multiplayer', 'available');
+
+    const soloText = soloAvailable.length > 0
+      ? soloAvailable.map(g => `* ${g.emoji} **${g.name}** — \`${g.command}\``).join('\n')
+      : '_لا توجد ألعاب فردية متاحة حالياً_';
+
+    const multiplayerText = multiplayerAvailable.length > 0
+      ? multiplayerAvailable.map(g => `* ${g.emoji} **${g.name}** — \`${g.command}\``).join('\n')
+      : '_لا توجد ألعاب جماعية متاحة حالياً_';
+
+    return new EmbedBuilder()
+      .setColor(config.colors.primary)
+      .setTitle('🎮 ألعاب جعفر')
+      .setDescription(
+        `### 🎯 ألعاب فردية\n\n` +
+        `${soloText}\n\n` +
+        `### 🎮 ألعاب جماعية\n\n` +
+        `${multiplayerText}`
+      )
+      .setFooter({ text: 'بوت جعفر • اكتب أمر اللعبة لبدء الجولة مباشرة!' })
       .setTimestamp();
   },
 

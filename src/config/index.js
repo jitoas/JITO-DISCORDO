@@ -33,6 +33,7 @@ export const config = {
     gameReverse: 0x9B59B6, // Purple for Reverse game
     gameFlags: 0x3498DB,   // Sky Blue for Flags game
     gameXO: 0xE67E22,      // Warm Orange for XO game
+    gameHarf: 0x2ECC71,    // Emerald Green for Harf game
   },
 
   // Game Settings (Centralized for future dashboard control)
@@ -63,6 +64,15 @@ export const config = {
       id: 'xo',
       description: 'لعبة إكس أو الشهيرة بين لاعبين (X و O)!',
       moveTimeoutSeconds: 60, // 60 seconds per move or turn
+      pointsPerWin: 10,
+    },
+
+    // لعبة حرف (Letter & Category guessing game)
+    harf: {
+      name: 'حرف',
+      id: 'harf',
+      description: 'أسرع لاعب يكتب كلمة تبدأ بالحرف المطلوب وضمن التصنيف المحدد!',
+      timerSeconds: 15, // Default countdown: 15 seconds
       pointsPerWin: 10,
     },
   },

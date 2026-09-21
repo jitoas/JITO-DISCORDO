@@ -105,7 +105,8 @@ class DatabaseManager {
         ssl: isLocalhost ? false : { rejectUnauthorized: false },
         max: 10,
         idleTimeoutMillis: 30000,
-        connectionTimeoutMillis: 10000,
+        connectionTimeoutMillis: 15000,
+        allowExitOnIdle: false,
       });
 
       // Handle background pool client errors without crashing
@@ -129,12 +130,15 @@ class DatabaseManager {
             total_wins INTEGER DEFAULT 0,
             reverse_wins INTEGER DEFAULT 0,
             flags_wins INTEGER DEFAULT 0,
+            harf_wins INTEGER DEFAULT 0,
             xo_wins INTEGER DEFAULT 0,
             first_seen TIMESTAMPTZ DEFAULT NOW(),
             last_won TIMESTAMPTZ DEFAULT NOW(),
             updated_at TIMESTAMPTZ DEFAULT NOW(),
             PRIMARY KEY (guild_id, user_id)
           );
+
+          ALTER TABLE jafar_scores ADD COLUMN IF NOT EXISTS harf_wins INTEGER DEFAULT 0;
 
           CREATE INDEX IF NOT EXISTS idx_jafar_scores_guild_pts 
           ON jafar_scores (guild_id, points DESC, total_wins DESC);
@@ -183,21 +187,23 @@ class DatabaseManager {
           const user = guildUsers[userId];
           const reverseWins = user.games?.reverse || 0;
           const flagsWins = user.games?.flags || 0;
+          const harfWins = user.games?.harf || 0;
           const xoWins = user.games?.xo || 0;
-          const totalWins = user.totalWins || (reverseWins + flagsWins + xoWins);
+          const totalWins = user.totalWins || (reverseWins + flagsWins + harfWins + xoWins);
 
           await client.query(`
             INSERT INTO jafar_scores (
               guild_id, user_id, username, points, total_wins,
-              reverse_wins, flags_wins, xo_wins, first_seen, last_won, updated_at
+              reverse_wins, flags_wins, harf_wins, xo_wins, first_seen, last_won, updated_at
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW(), NOW())
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW(), NOW())
             ON CONFLICT (guild_id, user_id) DO UPDATE SET
               username = EXCLUDED.username,
               points = GREATEST(jafar_scores.points, EXCLUDED.points),
               total_wins = GREATEST(jafar_scores.total_wins, EXCLUDED.total_wins),
               reverse_wins = GREATEST(jafar_scores.reverse_wins, EXCLUDED.reverse_wins),
               flags_wins = GREATEST(jafar_scores.flags_wins, EXCLUDED.flags_wins),
+              harf_wins = GREATEST(jafar_scores.harf_wins, EXCLUDED.harf_wins),
               xo_wins = GREATEST(jafar_scores.xo_wins, EXCLUDED.xo_wins);
           `, [
             guildId,
@@ -207,6 +213,7 @@ class DatabaseManager {
             totalWins,
             reverseWins,
             flagsWins,
+            harfWins,
             xoWins
           ]);
           migratedCount++;
@@ -232,7 +239,7 @@ class DatabaseManager {
       const res = await runner.query(`
         SELECT 
           guild_id, user_id, username, points, total_wins,
-          reverse_wins, flags_wins, xo_wins, first_seen, last_won
+          reverse_wins, flags_wins, harf_wins, xo_wins, first_seen, last_won
         FROM jafar_scores;
       `);
 
@@ -258,6 +265,7 @@ class DatabaseManager {
           games: {
             reverse: Number(row.reverse_wins) || 0,
             flags: Number(row.flags_wins) || 0,
+            harf: Number(row.harf_wins) || 0,
             xo: Number(row.xo_wins) || 0,
           },
           firstSeen: row.first_seen ? new Date(row.first_seen).toISOString() : new Date().toISOString(),
@@ -294,6 +302,7 @@ class DatabaseManager {
         games: {
           reverse: 0,
           flags: 0,
+          harf: 0,
           xo: 0,
         },
         firstSeen: new Date().toISOString(),
@@ -310,7 +319,7 @@ class DatabaseManager {
    * @param {string} guildId 
    * @param {string} userId 
    * @param {string} username 
-   * @param {'reverse' | 'flags' | 'xo'} gameType 
+   * @param {'reverse' | 'flags' | 'harf' | 'xo'} gameType 
    * @param {number} points 
    * @returns {object} Updated user stats
    */
@@ -337,21 +346,23 @@ class DatabaseManager {
     if (this.pool && this.isPostgresConnected) {
       const reverseWin = gameType === 'reverse' ? 1 : 0;
       const flagsWin = gameType === 'flags' ? 1 : 0;
+      const harfWin = gameType === 'harf' ? 1 : 0;
       const xoWin = gameType === 'xo' ? 1 : 0;
 
       this.pool.query(`
         INSERT INTO jafar_scores (
           guild_id, user_id, username, points, total_wins,
-          reverse_wins, flags_wins, xo_wins,
+          reverse_wins, flags_wins, harf_wins, xo_wins,
           first_seen, last_won, updated_at
         )
-        VALUES ($1, $2, $3, $4, 1, $5, $6, $7, NOW(), NOW(), NOW())
+        VALUES ($1, $2, $3, $4, 1, $5, $6, $7, $8, NOW(), NOW(), NOW())
         ON CONFLICT (guild_id, user_id) DO UPDATE SET
           username = EXCLUDED.username,
           points = jafar_scores.points + EXCLUDED.points,
           total_wins = jafar_scores.total_wins + 1,
           reverse_wins = jafar_scores.reverse_wins + EXCLUDED.reverse_wins,
           flags_wins = jafar_scores.flags_wins + EXCLUDED.flags_wins,
+          harf_wins = jafar_scores.harf_wins + EXCLUDED.harf_wins,
           xo_wins = jafar_scores.xo_wins + EXCLUDED.xo_wins,
           last_won = NOW(),
           updated_at = NOW()
@@ -363,6 +374,7 @@ class DatabaseManager {
         points,
         reverseWin,
         flagsWin,
+        harfWin,
         xoWin
       ]).catch((err) => {
         logger.warn(

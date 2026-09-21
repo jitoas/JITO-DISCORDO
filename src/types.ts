@@ -32,6 +32,7 @@ export interface PlayerScore {
   games: {
     reverse: number;
     flags: number;
+    harf?: number;
     xo?: number;
   };
   firstSeen: string;
@@ -59,6 +60,7 @@ export interface BotConfig {
     gold: number;
     gameReverse: number;
     gameFlags: number;
+    gameHarf?: number;
     gameXO?: number;
   };
   games: {
@@ -72,6 +74,13 @@ export interface BotConfig {
       maxWordLength: number;
     };
     flags: {
+      name: string;
+      id: string;
+      description: string;
+      timerSeconds: number;
+      pointsPerWin: number;
+    };
+    harf?: {
       name: string;
       id: string;
       description: string;
@@ -106,6 +115,17 @@ export interface FlagQuestion {
   aliases: string[];
   timerSeconds: number;
   points: number;
+}
+
+export interface GameRegistryEntry {
+  id: string;
+  name: string;
+  emoji: string;
+  command: string;
+  slashCommand?: string;
+  type: 'solo' | 'multiplayer';
+  status: 'available' | 'upcoming';
+  description?: string;
 }
 
 export interface XOState {
