@@ -34,6 +34,8 @@ export interface PlayerScore {
     flags: number;
     harf?: number;
     xo?: number;
+    hide_and_seek?: number;
+    chairs?: number;
   };
   firstSeen: string;
   lastWon: string | null;

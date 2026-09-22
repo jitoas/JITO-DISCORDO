@@ -184,7 +184,7 @@ export const GAME_REGISTRY = [
     command: '!كراسي',
     slashCommand: '/كراسي',
     type: 'multiplayer',
-    status: 'upcoming',
+    status: 'available',
     description: 'لعبة الكراسي الموسيقية التفاعلية بالأزرار',
   },
   {

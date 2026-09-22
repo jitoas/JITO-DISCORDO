@@ -19,7 +19,7 @@ interface SimulatorProps {
 }
 
 export const DiscordGameSimulator: React.FC<SimulatorProps> = ({ onWinRecorded }) => {
-  const [gameMode, setGameMode] = useState<'reverse' | 'flags' | 'harf' | 'guess_number' | 'button' | 'fastest' | 'disassemble' | 'xo' | 'mafia' | 'hide_and_seek'>('reverse');
+  const [gameMode, setGameMode] = useState<'reverse' | 'flags' | 'harf' | 'guess_number' | 'button' | 'fastest' | 'disassemble' | 'xo' | 'mafia' | 'hide_and_seek' | 'chairs'>('reverse');
   const [gameState, setGameState] = useState<'idle' | 'running' | 'won' | 'timeout'>('idle');
   
   // Game Questions
@@ -58,6 +58,19 @@ export const DiscordGameSimulator: React.FC<SimulatorProps> = ({ onWinRecorded }
   const [hasMyRole, setHasMyRole] = useState<'seeker' | 'hider' | null>(null);
   const [hasMyHiddenSpot, setHasMyHiddenSpot] = useState<string | null>(null);
 
+  // Musical Chairs State
+  const [chairsPhase, setChairsPhase] = useState<'idle' | 'lobby' | 'music' | 'sitting' | 'round_end' | 'ended'>('idle');
+  const [chairsPlayers, setChairsPlayers] = useState<string[]>([]);
+  const [chairsRound, setChairsRound] = useState<number>(1);
+  const [chairsCount, setChairsCount] = useState<number>(0);
+  const [chairsOccupied, setChairsOccupied] = useState<Record<number, string>>({});
+  const [chairsUserSeat, setChairsUserSeat] = useState<number | null>(null);
+  const chairsBotTimersRef = useRef<NodeJS.Timeout[]>([]);
+  const chairsPhaseTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const chairsActivePlayersRef = useRef<string[]>([]);
+  const chairsOccupiedRef = useRef<Record<number, string>>({});
+  const chairsRoundRef = useRef<number>(1);
+
   // Player State
   const [playerName, setPlayerName] = useState('البطل المغامر');
   const [userInput, setUserInput] = useState('');
@@ -76,7 +89,16 @@ export const DiscordGameSimulator: React.FC<SimulatorProps> = ({ onWinRecorded }
   const [streak, setStreak] = useState(0);
 
   // Chat message log simulation
-  const [chatLog, setChatLog] = useState<Array<{ sender: 'bot' | 'user' | 'system'; text?: string; embed?: any; time: string; isXO?: boolean; isButtonGame?: boolean; isMafiaLobby?: boolean; isMafiaNight?: boolean; isMafiaVote?: boolean }>>([]);
+  const [chatLog, setChatLog] = useState<Array<{ sender: 'bot' | 'user' | 'system'; text?: string; embed?: any; time: string; isXO?: boolean; isButtonGame?: boolean; isMafiaLobby?: boolean; isMafiaNight?: boolean; isMafiaVote?: boolean; isChairsLobby?: boolean; isChairsSitting?: boolean }>>([]);
+
+  const clearAllChairsTimers = () => {
+    if (chairsPhaseTimerRef.current) {
+      clearTimeout(chairsPhaseTimerRef.current);
+      chairsPhaseTimerRef.current = null;
+    }
+    chairsBotTimersRef.current.forEach(t => clearTimeout(t));
+    chairsBotTimersRef.current = [];
+  };
 
   // Clear timer helper
   const clearActiveTimer = () => {
@@ -84,6 +106,7 @@ export const DiscordGameSimulator: React.FC<SimulatorProps> = ({ onWinRecorded }
       clearInterval(timerRef.current);
       timerRef.current = null;
     }
+    clearAllChairsTimers();
   };
 
   // Cleanup timer on unmount
@@ -545,6 +568,271 @@ export const DiscordGameSimulator: React.FC<SimulatorProps> = ({ onWinRecorded }
       }
     } else {
       setStreak(0);
+    }
+  };
+
+  // Musical Chairs Simulator Handlers
+  const startChairsRound = () => {
+    clearActiveTimer();
+    isRoundEndedRef.current = false;
+    setGameState('running');
+    setUserInput('');
+    setFeedback(null);
+    setChairsPhase('lobby');
+    setChairsRound(1);
+    chairsRoundRef.current = 1;
+    setChairsUserSeat(null);
+    setChairsOccupied({});
+    chairsOccupiedRef.current = {};
+
+    const initialPlayers = [playerName, 'خالد', 'سارة', 'عمر'];
+    setChairsPlayers(initialPlayers);
+    chairsActivePlayersRef.current = initialPlayers;
+
+    const now = new Date().toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' });
+    setChatLog((prev) => [
+      ...prev,
+      {
+        sender: 'bot',
+        isButtonGame: true,
+        isChairsLobby: true,
+        embed: {
+          title: '🪑 كراسي — Musical Chairs',
+          description: `🎵 **"استعد... الموسيقى بتوقف بأي لحظة!"**\n\n` +
+            `👥 **اللاعبون المنضمون (${initialPlayers.length}/12):**\n` +
+            initialPlayers.map((p, idx) => `${idx + 1}. @${p} ${p === playerName ? '(صاحب اللعبة 👑)' : ''}`).join('\n') +
+            `\n\n💡 الحد الأدنى: **4 لاعبين** | الحد الأقصى: **12 لاعباً**\n` +
+            `اضغط على **🟢 انضمام** لإضافة لاعب، أو **▶️ بدء اللعبة** للانطلاق!`,
+          color: 'border-amber-500 bg-amber-950/20 text-amber-200',
+        },
+        time: now,
+      },
+    ]);
+  };
+
+  const handleChairsAddBot = () => {
+    if (chairsPhase !== 'lobby') return;
+    const pool = ['فهد', 'نورة', 'سعد', 'ريم', 'عبدالله', 'هند', 'يوسف', 'لمى'];
+    const current = chairsPlayers;
+    if (current.length >= 12) return;
+    const available = pool.filter(n => !current.includes(n));
+    if (available.length === 0) return;
+    const nextPlayer = available[0];
+    const updated = [...current, nextPlayer];
+    setChairsPlayers(updated);
+    chairsActivePlayersRef.current = updated;
+
+    const now = new Date().toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' });
+    setChatLog((prev) => [
+      ...prev,
+      {
+        sender: 'system',
+        text: `✅ انضم @${nextPlayer} إلى غرفة كراسي! (${updated.length}/12)`,
+        time: now,
+      }
+    ]);
+  };
+
+  const handleChairsStart = () => {
+    if (chairsPhase !== 'lobby') return;
+    if (chairsPlayers.length < 4) {
+      setFeedback({ isCorrect: false, text: '❌ تحتاج 4 لاعبين على الأقل لبدء لعبة كراسي.' });
+      return;
+    }
+    const active = [...chairsPlayers];
+    chairsActivePlayersRef.current = active;
+    startChairsMusicPhase(active, 1);
+  };
+
+  const startChairsMusicPhase = (active: string[], roundNum: number) => {
+    clearAllChairsTimers();
+    setChairsPhase('music');
+    setChairsRound(roundNum);
+    chairsRoundRef.current = roundNum;
+    const cCount = active.length - 1;
+    setChairsCount(cCount);
+    setChairsOccupied({});
+    chairsOccupiedRef.current = {};
+    setChairsUserSeat(null);
+
+    const now = new Date().toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' });
+    setChatLog((prev) => [
+      ...prev,
+      {
+        sender: 'bot',
+        embed: {
+          title: `🎵 كراسي — الجولة ${roundNum}`,
+          description: `🎵 **الموسيقى شغالة...**\n\n` +
+            `👥 **اللاعبون (${active.length}):**\n` +
+            active.map(p => `• @${p}`).join('\n') + `\n\n` +
+            `🪑 **الكراسي المتاحة:** ${cCount}\n\n` +
+            `*خلي أصابعك جاهزة... الكراسي بتنزل بأي لحظة!*`,
+          color: 'border-yellow-500 bg-yellow-950/20 text-yellow-200',
+        },
+        time: now,
+      }
+    ]);
+
+    // Random music delay: 3500ms - 5000ms
+    const musicMs = Math.floor(Math.random() * 1500) + 3500;
+    chairsPhaseTimerRef.current = setTimeout(() => {
+      revealChairsPhase(active, roundNum, cCount);
+    }, musicMs);
+  };
+
+  const revealChairsPhase = (active: string[], roundNum: number, cCount: number) => {
+    setChairsPhase('sitting');
+    const now = new Date().toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' });
+    setChatLog((prev) => [
+      ...prev,
+      {
+        sender: 'bot',
+        isButtonGame: true,
+        isChairsSitting: true,
+        embed: {
+          title: '🚨 اجلس الآن!',
+          description: `🪑 **اجلس بسرعة!**\n\n` +
+            `👥 **اللاعبون:** ${active.length}\n` +
+            `🪑 **الكراسي المتاحة:** ${cCount}\n\n` +
+            `⏱️ أمامكم **5 ثوانٍ** فقط لحجز كرسي! اضغط على أي كرسي متاح!`,
+          color: 'border-red-500 bg-red-950/20 text-red-200',
+        },
+        time: now,
+      }
+    ]);
+
+    // Bot players attempt to sit after randomized human-like delays
+    const bots = active.filter(p => p !== playerName);
+    bots.forEach(bot => {
+      const botDelay = Math.floor(Math.random() * 2200) + 800; // 800ms - 3000ms
+      const t = setTimeout(() => {
+        const currentOcc = chairsOccupiedRef.current;
+        const availableChairs: number[] = [];
+        for (let i = 1; i <= cCount; i++) {
+          if (!currentOcc[i]) availableChairs.push(i);
+        }
+        if (availableChairs.length > 0) {
+          const chosenChair = availableChairs[Math.floor(Math.random() * availableChairs.length)];
+          const newOcc = { ...chairsOccupiedRef.current, [chosenChair]: bot };
+          chairsOccupiedRef.current = newOcc;
+          setChairsOccupied(newOcc);
+
+          if (Object.keys(newOcc).length >= cCount) {
+            clearAllChairsTimers();
+            concludeChairsRound(active, roundNum, newOcc);
+          }
+        }
+      }, botDelay);
+      chairsBotTimersRef.current.push(t);
+    });
+
+    // 5 seconds window timeout
+    chairsPhaseTimerRef.current = setTimeout(() => {
+      concludeChairsRound(active, roundNum, chairsOccupiedRef.current);
+    }, 5000);
+  };
+
+  const handleChairsSeatClick = (chairNum: number) => {
+    if (chairsPhase !== 'sitting') return;
+    if (chairsUserSeat !== null) {
+      setFeedback({ isCorrect: false, text: `❌ أنت جالس بالفعل على الكرسي رقم ${chairsUserSeat}!` });
+      return;
+    }
+    if (chairsOccupiedRef.current[chairNum]) {
+      setFeedback({ isCorrect: false, text: '❌ هذا الكرسي انحجز قبلك!' });
+      return;
+    }
+
+    // Atomic seat assignment
+    const newOcc = { ...chairsOccupiedRef.current, [chairNum]: playerName };
+    chairsOccupiedRef.current = newOcc;
+    setChairsOccupied(newOcc);
+    setChairsUserSeat(chairNum);
+    setFeedback({ isCorrect: true, text: `🪑 جلست بنجاح على الكرسي ${chairNum}!` });
+
+    // If all chairs filled, conclude immediately
+    if (Object.keys(newOcc).length >= chairsCount) {
+      clearAllChairsTimers();
+      concludeChairsRound(chairsActivePlayersRef.current, chairsRoundRef.current, newOcc);
+    }
+  };
+
+  const concludeChairsRound = (active: string[], roundNum: number, finalOcc: Record<number, string>) => {
+    clearAllChairsTimers();
+    setChairsPhase('round_end');
+
+    const seated = Object.values(finalOcc);
+    const nonSeated = active.filter(p => !seated.includes(p));
+
+    let eliminated = '';
+    if (nonSeated.length > 0) {
+      eliminated = nonSeated[Math.floor(Math.random() * nonSeated.length)];
+    } else {
+      eliminated = active[Math.floor(Math.random() * active.length)];
+    }
+
+    const survivors = active.filter(p => p !== eliminated);
+    chairsActivePlayersRef.current = survivors;
+
+    const now = new Date().toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' });
+    setChatLog((prev) => [
+      ...prev,
+      {
+        sender: 'bot',
+        embed: {
+          title: `⏱️ انتهت الجولة ${roundNum}!`,
+          description: `❌ **خرج من اللعبة:**\n@${eliminated} ${nonSeated.length > 1 ? '(لم يجلس في الوقت المحدد)' : '(ما لحق كرسي)'}\n\n` +
+            `🪑 **الجالسين:**\n${seated.map(p => `@${p}`).join('، ') || 'لا أحد'}\n\n` +
+            `👥 **المتبقون (${survivors.length}):**\n` +
+            survivors.map(p => `• @${p}`).join('\n'),
+          color: 'border-rose-500 bg-rose-950/20 text-rose-200',
+        },
+        time: now,
+      }
+    ]);
+
+    if (survivors.length === 1) {
+      const winner = survivors[0];
+      const isUserWinner = winner === playerName;
+      const pointsToAward = 10;
+
+      setTimeout(() => {
+        setChairsPhase('ended');
+        setGameState('won');
+
+        setChatLog((prev) => [
+          ...prev,
+          {
+            sender: 'bot',
+            embed: {
+              title: '🏆 انتهت اللعبة!',
+              description: `🎉 **ألف مبروك للفائز بالمركز الأول!**\n\n` +
+                `👑 **الفائز:** @${winner}\n` +
+                `⭐ **النقاط المكتسبة:** +${pointsToAward} نقطة!\n\n` +
+                `*أثبت سرعة ردة فعله وحسم آخر كرسي ببراعة!* 🪑✨`,
+              color: 'border-emerald-500 bg-emerald-950/20 text-emerald-200',
+            },
+            time: new Date().toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' }),
+          }
+        ]);
+
+        if (isUserWinner) {
+          setSessionPoints(prev => prev + pointsToAward);
+          setSessionWins(prev => prev + 1);
+          setStreak(prev => prev + 1);
+          if (onWinRecorded) {
+            fetch('/api/simulate/chairs/record', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ playerName, points: pointsToAward })
+            }).then(() => onWinRecorded()).catch(err => console.error(err));
+          }
+        }
+      }, 1500);
+    } else if (survivors.length > 1) {
+      chairsPhaseTimerRef.current = setTimeout(() => {
+        startChairsMusicPhase(survivors, roundNum + 1);
+      }, 2500);
     }
   };
 
@@ -1292,6 +1580,8 @@ export const DiscordGameSimulator: React.FC<SimulatorProps> = ({ onWinRecorded }
       startMafiaRound();
     } else if (gameMode === 'hide_and_seek') {
       startHideAndSeekRound();
+    } else if (gameMode === 'chairs') {
+      startChairsRound();
     } else {
       startXORound();
     }
@@ -1909,7 +2199,7 @@ export const DiscordGameSimulator: React.FC<SimulatorProps> = ({ onWinRecorded }
         </div>
 
         {/* Game Mode Switcher Buttons */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3 mt-6 pt-6 border-t border-slate-800">
+        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 xl:grid-cols-11 gap-3 mt-6 pt-6 border-t border-slate-800">
           <button
             id="sim-mode-reverse-btn"
             onClick={() => {
@@ -2197,6 +2487,35 @@ export const DiscordGameSimulator: React.FC<SimulatorProps> = ({ onWinRecorded }
               gameMode === 'hide_and_seek' ? 'border-blue-400 bg-blue-500' : 'border-slate-600'
             }`}>
               {gameMode === 'hide_and_seek' && <div className="w-1 h-1 bg-white rounded-full" />}
+            </div>
+          </button>
+
+          <button
+            id="sim-mode-chairs-btn"
+            onClick={() => {
+              setGameMode('chairs');
+              setGameState('idle');
+              setFeedback(null);
+            }}
+            className={`p-3 rounded-xl border text-right transition-all flex items-center justify-between ${
+              gameMode === 'chairs'
+                ? 'bg-amber-950/40 border-amber-500 text-white shadow-lg shadow-amber-900/20 ring-1 ring-amber-500'
+                : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-700'
+            }`}
+          >
+            <div>
+              <div className="flex items-center gap-1.5 mb-1">
+                <span className="text-lg">🪑</span>
+                <span className="font-bold text-sm text-white">كراسي</span>
+              </div>
+              <p className="text-[11px] text-slate-400">
+                <code className="text-amber-400 font-mono">!كراسي</code>
+              </p>
+            </div>
+            <div className={`w-3.5 h-3.5 rounded-full border-2 flex items-center justify-center ${
+              gameMode === 'chairs' ? 'border-amber-400 bg-amber-500' : 'border-slate-600'
+            }`}>
+              {gameMode === 'chairs' && <div className="w-1 h-1 bg-white rounded-full" />}
             </div>
           </button>
         </div>
@@ -2659,6 +2978,66 @@ export const DiscordGameSimulator: React.FC<SimulatorProps> = ({ onWinRecorded }
                             )}
                           </div>
                         )}
+
+                        {gameMode === 'chairs' && chairsPhase === 'lobby' && msg.isChairsLobby && (
+                          <div className="pt-2 border-t border-slate-700/40">
+                            <div className="text-xs text-slate-300 font-semibold mb-2">
+                              خيارات ردهة لعبة كراسي (Discord Buttons):
+                            </div>
+                            <div className="flex gap-2 flex-wrap">
+                              <button
+                                onClick={handleChairsAddBot}
+                                disabled={chairsPlayers.length >= 12}
+                                className="px-3.5 py-2 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 shadow-md text-white transition-all bg-emerald-600 hover:bg-emerald-500 active:scale-95 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                              >
+                                <span>🟢</span>
+                                <span>انضمام لاعب ({chairsPlayers.length}/12)</span>
+                              </button>
+                              <button
+                                onClick={handleChairsStart}
+                                disabled={chairsPlayers.length < 4}
+                                className="px-4 py-2 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 shadow-md text-white transition-all bg-blue-600 hover:bg-blue-500 active:scale-95 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                              >
+                                <span>▶️</span>
+                                <span>بدء اللعبة</span>
+                              </button>
+                            </div>
+                          </div>
+                        )}
+
+                        {gameMode === 'chairs' && chairsPhase === 'sitting' && msg.isChairsSitting && (
+                          <div className="pt-2 border-t border-slate-700/40">
+                            <div className="text-xs text-slate-300 font-semibold mb-2">
+                              🪑 الكراسي المتاحة (اضغط على كرسي شاغر فوراً):
+                            </div>
+                            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 max-w-[500px]">
+                              {Array.from({ length: chairsCount }, (_, idx) => idx + 1).map((chairNum) => {
+                                const occupant = chairsOccupied[chairNum];
+                                const isMySeat = chairsUserSeat === chairNum;
+                                const isTaken = !!occupant;
+
+                                return (
+                                  <button
+                                    key={`chair-btn-${chairNum}`}
+                                    onClick={() => handleChairsSeatClick(chairNum)}
+                                    disabled={isTaken}
+                                    className={`px-3 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 active:scale-95 cursor-pointer ${
+                                      isMySeat
+                                        ? 'bg-emerald-600 text-white ring-2 ring-emerald-400'
+                                        : isTaken
+                                        ? 'bg-slate-800/80 border border-slate-700 text-slate-400 cursor-not-allowed line-through'
+                                        : 'bg-amber-600 hover:bg-amber-500 text-white shadow-md shadow-amber-950/40 hover:scale-[1.02]'
+                                    }`}
+                                  >
+                                    <span>🪑</span>
+                                    <span>{chairNum}</span>
+                                    {occupant && <span className="text-[10px] opacity-90 truncate max-w-[60px]">({occupant})</span>}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
@@ -2683,22 +3062,36 @@ export const DiscordGameSimulator: React.FC<SimulatorProps> = ({ onWinRecorded }
               </div>
             )}
 
-            {gameMode === 'xo' || gameMode === 'button' || gameMode === 'mafia' ? (
+            {gameMode === 'xo' || gameMode === 'button' || gameMode === 'mafia' || gameMode === 'hide_and_seek' || gameMode === 'chairs' ? (
               <div className="flex flex-col bg-[#383A40] p-3 rounded-xl text-xs text-slate-300 gap-2">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <span className="text-blue-400 font-bold">
-                      {gameMode === 'mafia' ? '🪓 لعبة مافيا:' : `🔘 لعبة ${gameMode === 'button' ? 'زر' : 'XO'}:`}
+                    <span className="text-amber-400 font-bold">
+                      {gameMode === 'mafia' ? '🪓 لعبة مافيا:' : gameMode === 'chairs' ? '🪑 لعبة كراسي:' : gameMode === 'hide_and_seek' ? '🙈 لعبة غميضة:' : `🔘 لعبة ${gameMode === 'button' ? 'زر' : 'XO'}:`}
                     </span>
                     <span>
                       {gameMode === 'mafia'
                         ? 'تفاعل باستخدام الأزرار التي تظهر في الشات والرسائل الخاصة في القائمة الجانبية!'
+                        : gameMode === 'chairs'
+                        ? 'تفاعل بالضغط المباشر على أزرار الكراسي في الشات فور انتهاء الموسيقى!'
+                        : gameMode === 'hide_and_seek'
+                        ? 'اختر أماكن الاختباء والتفتيش عبر الأزرار التفاعلية في الشات!'
                         : 'العب بالضغط السريع مباشرة على الأزرار الملونة في الشات بالأعلى!'}
                     </span>
                   </div>
-                  {gameState === 'running' && gameMode !== 'mafia' && (
+                  {gameState === 'running' && gameMode !== 'mafia' && gameMode !== 'chairs' && (
                     <span className="bg-slate-800 px-3 py-1 rounded-lg font-bold text-amber-300 animate-pulse">
                       ⏱️ المؤقت جارٍ: {timeLeft} ث
+                    </span>
+                  )}
+                  {gameMode === 'chairs' && chairsPhase === 'music' && (
+                    <span className="bg-yellow-950/80 border border-yellow-500/40 px-3 py-1 rounded-lg font-bold text-yellow-300 animate-pulse">
+                      🎵 الموسيقى شغالة... استعد!
+                    </span>
+                  )}
+                  {gameMode === 'chairs' && chairsPhase === 'sitting' && (
+                    <span className="bg-rose-950/80 border border-rose-500/40 px-3 py-1 rounded-lg font-bold text-rose-300 animate-bounce">
+                      🚨 اجلس الآن! (5 ثوانٍ)
                     </span>
                   )}
                 </div>
@@ -2929,6 +3322,26 @@ export const DiscordGameSimulator: React.FC<SimulatorProps> = ({ onWinRecorded }
                 <div className="pt-2 border-t border-slate-800 text-[11px] text-slate-400">
                   ⏱️ <strong>مدة اللعبة كاملة:</strong> 75 ثانية (15ث اختباء، 60ث بحث).<br />
                   🏆 <strong>النقاط المكتسبة:</strong> +10 نقاط لكل فائز بالفريق.
+                </div>
+              </div>
+            ) : gameMode === 'chairs' ? (
+              <div className="text-xs text-slate-300 space-y-3 leading-relaxed">
+                <p className="bg-amber-950/30 border border-amber-800/40 p-3 rounded-xl text-amber-200">
+                  🪑 <strong>فكرة اللعبة:</strong> لعبة الكراسي الموسيقية الجماعية! الموسيقى تعمل ثم تتوقف فجأة ويظهر عدد كراسي أقل من اللاعبين بواحد (N - 1)، وأسرع اللاعبين جلوساً ينجون!
+                </p>
+                <div className="space-y-1.5">
+                  <p className="font-semibold text-slate-200">✨ القواعد وآلية الجولات:</p>
+                  <ul className="list-disc list-inside text-slate-400 space-y-1">
+                    <li><strong>عدد اللاعبين:</strong> من 4 إلى 12 لاعباً.</li>
+                    <li><strong>أمان التسابق (Race Protection):</strong> فحص ذري لحظي يمنع حجز نفس الكرسي لأكثر من لاعب.</li>
+                    <li><strong>قفل المقعد:</strong> لا يمكن للاعب الجالس تغيير كرسيه أو الجلوس على كرسيين.</li>
+                    <li><strong>الإقصاء:</strong> اللاعب الذي لا يجد كرسياً يُستبعد من الجولة التالية.</li>
+                    <li><strong>الفائز الأخير:</strong> آخر لاعب يحصل على الكرسي الأخير يفوز بالجائزة!</li>
+                  </ul>
+                </div>
+                <div className="pt-2 border-t border-slate-800 text-[11px] text-slate-400 space-y-1">
+                  <p>⏱️ <strong>وقت الجلوس:</strong> 5 ثوانٍ بعد توقف الموسيقى.</p>
+                  <p>⭐ <strong>النقاط:</strong> +10 نقاط للفائز بالمركز الأول.</p>
                 </div>
               </div>
             ) : (

@@ -533,6 +533,22 @@ async function startServer() {
     }
   });
 
+  // Simulator Endpoints: Test "Musical Chairs" (كراسي)
+  app.post('/api/simulate/chairs/record', (req, res) => {
+    try {
+      const { playerName, guildId = 'demo-server', points = 10 } = req.body || {};
+      const user = db.addWin(guildId, playerName || 'مستخدم تجريبي', playerName || 'مستخدم تجريبي', 'chairs', points);
+      return res.json({
+        success: true,
+        points,
+        user,
+      });
+    } catch (err: any) {
+      logger.error('Error in /api/simulate/chairs/record', err);
+      return res.status(500).json({ success: false, error: err?.message || 'خطأ في تسجيل الفوز' });
+    }
+  });
+
   // --- Vite / Static Files Middleware ---
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({
