@@ -845,10 +845,23 @@ export class FlagQuestionPool {
    */
   _initNewCycle() {
     this.cycleCount += 1;
-    // Clone full dataset
-    const newPool = COUNTRIES.map((c) => ({ ...c }));
+    
+    // Get all easy countries (50 countries)
+    const easyCountries = COUNTRIES.filter(c => c.difficulty === 'easy');
+    
+    // Get medium countries, shuffle them, and take 15 of them
+    const mediumCountries = COUNTRIES.filter(c => c.difficulty === 'medium');
+    const shuffledMedium = [...mediumCountries];
+    for (let i = shuffledMedium.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [shuffledMedium[i], shuffledMedium[j]] = [shuffledMedium[j], shuffledMedium[i]];
+    }
+    const selectedMedium = shuffledMedium.slice(0, 15);
 
-    // Fisher-Yates Shuffle
+    // Combine them (total 65 countries: ~77% Easy, ~23% Medium, 0% Hard)
+    const newPool = [...easyCountries, ...selectedMedium].map((c) => ({ ...c }));
+
+    // Fisher-Yates Shuffle the final combined pool
     for (let i = newPool.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
       [newPool[i], newPool[j]] = [newPool[j], newPool[i]];

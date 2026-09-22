@@ -174,7 +174,7 @@ export const GAME_REGISTRY = [
     command: '!مافيا',
     slashCommand: '/مافيا',
     type: 'multiplayer',
-    status: 'upcoming',
+    status: 'available',
     description: 'لعبة المافيا والتحقيق والتصويت الجماعي',
   },
   {

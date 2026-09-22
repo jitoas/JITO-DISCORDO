@@ -19,7 +19,7 @@ interface SimulatorProps {
 }
 
 export const DiscordGameSimulator: React.FC<SimulatorProps> = ({ onWinRecorded }) => {
-  const [gameMode, setGameMode] = useState<'reverse' | 'flags' | 'harf' | 'guess_number' | 'button' | 'fastest' | 'disassemble' | 'xo'>('reverse');
+  const [gameMode, setGameMode] = useState<'reverse' | 'flags' | 'harf' | 'guess_number' | 'button' | 'fastest' | 'disassemble' | 'xo' | 'mafia'>('reverse');
   const [gameState, setGameState] = useState<'idle' | 'running' | 'won' | 'timeout'>('idle');
   
   // Game Questions
@@ -40,6 +40,15 @@ export const DiscordGameSimulator: React.FC<SimulatorProps> = ({ onWinRecorded }
   const [xoWinningCombo, setXOWinningCombo] = useState<number[] | null>(null);
   const [isXODraw, setIsXODraw] = useState(false);
 
+  // Mafia State
+  const [mafiaPhase, setMafiaPhase] = useState<'idle' | 'lobby' | 'night' | 'day_announcement' | 'day_discussion' | 'day_vote' | 'ended'>('idle');
+  const [mafiaPlayers, setMafiaPlayers] = useState<Array<{ name: string; role: 'mafia' | 'detective' | 'doctor' | 'civilian'; isAlive: boolean }>>([]);
+  const [mafiaCycle, setMafiaCycle] = useState<number>(1);
+  const [mafiaVotes, setMafiaVotes] = useState<Record<string, string>>({}); // voterName -> targetName
+  const [mafiaMyRole, setMafiaMyRole] = useState<'mafia' | 'detective' | 'doctor' | 'civilian' | null>(null);
+  const [mafiaDMs, setMafiaDMs] = useState<Array<{ text: string; time: string }>>([]);
+  const [mafiaDoctorChoice, setMafiaDoctorChoice] = useState<string | null>(null);
+
   // Player State
   const [playerName, setPlayerName] = useState('البطل المغامر');
   const [userInput, setUserInput] = useState('');
@@ -58,7 +67,7 @@ export const DiscordGameSimulator: React.FC<SimulatorProps> = ({ onWinRecorded }
   const [streak, setStreak] = useState(0);
 
   // Chat message log simulation
-  const [chatLog, setChatLog] = useState<Array<{ sender: 'bot' | 'user' | 'system'; text?: string; embed?: any; time: string; isXO?: boolean; isButtonGame?: boolean }>>([]);
+  const [chatLog, setChatLog] = useState<Array<{ sender: 'bot' | 'user' | 'system'; text?: string; embed?: any; time: string; isXO?: boolean; isButtonGame?: boolean; isMafiaLobby?: boolean; isMafiaNight?: boolean; isMafiaVote?: boolean }>>([]);
 
   // Clear timer helper
   const clearActiveTimer = () => {
@@ -469,6 +478,472 @@ export const DiscordGameSimulator: React.FC<SimulatorProps> = ({ onWinRecorded }
     }
   };
 
+  // Start a new Mafia Game Round
+  const startMafiaRound = () => {
+    clearActiveTimer();
+    isRoundEndedRef.current = false;
+    setGameState('running');
+    setUserInput('');
+    setFeedback(null);
+    setMafiaPhase('lobby');
+    setMafiaCycle(1);
+    setMafiaVotes({});
+    setMafiaDMs([]);
+    setMafiaDoctorChoice(null);
+
+    // Pre-create 6 players (User + 5 bots) to represent a complete game with all special roles
+    const playersInit = [
+      { name: playerName, role: 'civilian' as const, isAlive: true },
+      { name: 'أحمد', role: 'civilian' as const, isAlive: true },
+      { name: 'خالد', role: 'civilian' as const, isAlive: true },
+      { name: 'سارة', role: 'civilian' as const, isAlive: true },
+      { name: 'ريم', role: 'civilian' as const, isAlive: true },
+      { name: 'نور', role: 'civilian' as const, isAlive: true },
+    ];
+
+    // Distribute roles dynamically based on count
+    const count = playersInit.length;
+    let mafiaCount = 1;
+    let detectiveCount = 0;
+    let doctorCount = 0;
+
+    if (count <= 5) {
+      mafiaCount = 1;
+      if (Math.random() > 0.5) {
+        detectiveCount = 1;
+      } else {
+        doctorCount = 1;
+      }
+    } else if (count >= 6 && count <= 8) {
+      mafiaCount = 2;
+      detectiveCount = 1;
+      doctorCount = 1;
+    } else if (count >= 9 && count <= 12) {
+      mafiaCount = count >= 11 ? 3 : 2;
+      detectiveCount = 1;
+      doctorCount = 1;
+    } else {
+      mafiaCount = 3;
+      detectiveCount = 1;
+      doctorCount = 1;
+    }
+
+    const roles: Array<'mafia' | 'detective' | 'doctor' | 'civilian'> = [];
+    for (let i = 0; i < mafiaCount; i++) roles.push('mafia');
+    for (let i = 0; i < detectiveCount; i++) roles.push('detective');
+    for (let i = 0; i < doctorCount; i++) roles.push('doctor');
+    while (roles.length < count) roles.push('civilian');
+
+    // Shuffle roles
+    const shuffledRoles = [...roles];
+    for (let i = shuffledRoles.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [shuffledRoles[i], shuffledRoles[j]] = [shuffledRoles[j], shuffledRoles[i]];
+    }
+
+    const assignedPlayers = playersInit.map((p, idx) => ({
+      ...p,
+      role: shuffledRoles[idx],
+    }));
+
+    setMafiaPlayers(assignedPlayers);
+
+    const userObj = assignedPlayers.find(p => p.name === playerName);
+    const userRole = userObj ? userObj.role : 'civilian';
+    setMafiaMyRole(userRole);
+
+    const timerSec = 120; // 2 minutes lobby time
+    setInitialTime(timerSec);
+    setTimeLeft(timerSec);
+
+    const now = new Date().toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' });
+    setChatLog((prev) => [
+      ...prev,
+      {
+        sender: 'bot',
+        time: now,
+        isMafiaLobby: true,
+        embed: {
+          title: '🪓 غرفة لعبة مافيا — Mafia',
+          description: `انضموا للعبة قبل أن تبدأ!\n\n👥 **اللاعبون المنضمون (6):**\n1. @${playerName} (منشئ اللعبة)\n2. @أحمد\n3. @خالد\n4. @سارة\n5. @ريم\n6. @نور\n\n💡 اضغط على زر **بدء اللعبة 🎮** بالأسفل للبدء وتوزيع الأدوار!`,
+          color: 'border-slate-500 bg-slate-900/40 text-slate-200',
+        }
+      }
+    ]);
+  };
+
+  const handleStartMafiaGame = () => {
+    setMafiaPhase('night');
+    const now = new Date().toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' });
+
+    // Send role DM to player
+    let roleText = '';
+    let roleEmoji = '';
+    if (mafiaMyRole === 'mafia') {
+      roleText = 'أنت هو المافيا 🔪! هدفك التخلص من الجميع!';
+      roleEmoji = '🔪';
+    } else if (mafiaMyRole === 'detective') {
+      roleText = 'أنت هو المحقق 🕵️! هدفك فحص هوية لاعب كل ليلة لكشف المافيا!';
+      roleEmoji = '🕵️';
+    } else if (mafiaMyRole === 'doctor') {
+      roleText = 'أنت هو الطبيب 🩺! هدفك حماية سكان المدينة. اختر لاعباً واحداً لحمايته من التصفية في كل ليلة!';
+      roleEmoji = '🩺';
+    } else {
+      roleText = 'أنت هو المدني 👨‍🌾! هدفك نقاش المدينة لكشف المافيا والتصويت لنفيهم!';
+      roleEmoji = '👨‍🌾';
+    }
+
+    setMafiaDMs([
+      {
+        text: `📬 رسالة النظام:\nدورك السري في هذه الجولة هو: **${roleEmoji} ${mafiaMyRole === 'mafia' ? 'مافيا' : mafiaMyRole === 'detective' ? 'محقق' : mafiaMyRole === 'doctor' ? 'طبيب' : 'مدني'}**.\n${roleText}`,
+        time: now,
+      }
+    ]);
+
+    // Send game started message in channel
+    setChatLog((prev) => [
+      ...prev,
+      {
+        sender: 'bot',
+        time: now,
+        embed: {
+          title: '🎮 بدأت لعبة مافيا!',
+          description: `تم إرسال الأدوار السرية لجميع اللاعبين في الرسائل الخاصة (DMs) 🤫\n\n👥 **اللاعبون المشاركون (6):**\n• @${playerName}\n• @أحمد\n• @خالد\n• @سارة\n• @ريم\n• @نور\n\n🌃 سيهبط الليل على المدينة بعد قليل لتنفيذ الأدوار الخاصة...`,
+          color: 'border-slate-700 bg-slate-900/30 text-slate-200',
+        }
+      }
+    ]);
+
+    // Set a tiny timeout then trigger Night Phase
+    setTimeout(() => {
+      triggerMafiaNight();
+    }, 3000);
+  };
+
+  const triggerMafiaNight = () => {
+    setMafiaPhase('night');
+    const now = new Date().toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' });
+
+    setChatLog((prev) => [
+      ...prev,
+      {
+        sender: 'bot',
+        time: now,
+        isMafiaNight: true,
+        embed: {
+          title: `🌃 الليل يهبط على المدينة (الجولة ${mafiaCycle})`,
+          description: `خيم الصمت المطبق على المدينة... 🤫\nنام الجميع بسلام، بينما استيقظت المافيا لتنفيذ الجريمة، واستيقظ المحقق لتقصي الحقائق، واستيقظ الطبيب لحماية الضحايا.`,
+          color: 'border-blue-950 bg-blue-950/20 text-blue-200',
+        }
+      }
+    ]);
+
+    // If user is civilian or dead, make computer play automatically and transition to Day after 5s
+    const myPlayer = mafiaPlayers.find(p => p.name === playerName);
+    const userRoleCanAct = mafiaMyRole === 'mafia' || mafiaMyRole === 'detective' || mafiaMyRole === 'doctor';
+    if (!myPlayer || !myPlayer.isAlive || !userRoleCanAct) {
+      setTimeout(() => {
+        handleMafiaNightOutcome(null);
+      }, 5000);
+    }
+  };
+
+  const handleMafiaNightOutcome = (playerTargetId: string | null, doctorChoiceParam: string | null = null) => {
+    const now = new Date().toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' });
+    let killedName = '';
+
+    const aliveNonMafia = mafiaPlayers.filter(p => p.isAlive && p.role !== 'mafia');
+
+    if (mafiaMyRole === 'mafia' && playerTargetId) {
+      // User killed someone
+      killedName = playerTargetId;
+    } else {
+      // Computer Mafia kills someone among non-mafia
+      const possibleTargets = aliveNonMafia.filter(p => p.name !== playerName);
+      if (possibleTargets.length > 0) {
+        const randTarget = possibleTargets[Math.floor(Math.random() * possibleTargets.length)];
+        killedName = randTarget.name;
+      } else {
+        // Fallback
+        const userObj = mafiaPlayers.find(p => p.name === playerName);
+        if (userObj && userObj.isAlive) {
+          killedName = playerName;
+        }
+      }
+    }
+
+    // Determine Doctor's protection choice
+    let finalDoctorChoice = doctorChoiceParam;
+    if (mafiaMyRole !== 'doctor') {
+      const aliveDoc = mafiaPlayers.find(p => p.isAlive && p.role === 'doctor');
+      if (aliveDoc) {
+        // AI doctor protects a random alive player
+        const alivePlayers = mafiaPlayers.filter(p => p.isAlive);
+        if (alivePlayers.length > 0) {
+          finalDoctorChoice = alivePlayers[Math.floor(Math.random() * alivePlayers.length)].name;
+        }
+      }
+    }
+
+    // Apply protection
+    let isProtected = false;
+    if (finalDoctorChoice && killedName === finalDoctorChoice) {
+      isProtected = true;
+      killedName = ''; // Nobody dies!
+    }
+
+    // Kill the target if not protected
+    let updatedPlayers = [...mafiaPlayers];
+    if (killedName) {
+      updatedPlayers = mafiaPlayers.map(p => {
+        if (p.name === killedName) {
+          return { ...p, isAlive: false };
+        }
+        return p;
+      });
+    }
+
+    setMafiaPlayers(updatedPlayers);
+    setMafiaPhase('day_announcement');
+
+    // Announce death in chat
+    const victim = mafiaPlayers.find(p => p.name === killedName);
+    const victimRoleText = victim ? (victim.role === 'mafia' ? 'مافيا 🔪' : victim.role === 'detective' ? 'محقق 🕵️' : victim.role === 'doctor' ? 'طبيب 🩺' : 'مدني 👨‍🌾') : 'مدني 👨‍🌾';
+
+    setChatLog((prev) => [
+      ...prev,
+      {
+        sender: 'bot',
+        time: now,
+        embed: {
+          title: `☀️ أشرقت شمس النهار (الجولة ${mafiaCycle})`,
+          description: killedName 
+            ? `🚨 **أشرقت الشمس ☀️... واستيقظت المدينة على خبر مفجع!**\n\nلقد تسللت المافيا ليلاً واغتالت اللاعب: @${killedName} 💀\n(كان دوره السري: **${victimRoleText}**)`
+            : `🎉 **أشرقت الشمس ☀️... واستيقظت المدينة بسلام!**\n\nلم يمت أحد هذه الليلة.`,
+          color: 'border-yellow-600 bg-yellow-950/20 text-yellow-200',
+        }
+      }
+    ]);
+
+    // Check Win/Loss conditions
+    const isOver = checkMafiaGameEnd(updatedPlayers);
+    if (isOver) return;
+
+    // Proceed to discussion then vote phase
+    setTimeout(() => {
+      setChatLog((prev) => [
+        ...prev,
+        {
+          sender: 'bot',
+          time: now,
+          text: `🗳️ **بدأت فترة النقاش والمحاورة لكشف الأشرار!** (اضغط على زر **بدء التصويت** بالأسفل للذهاب للتصويت ونفي المتهمين)`
+        }
+      ]);
+      setMafiaPhase('day_discussion');
+    }, 3000);
+  };
+
+  const checkMafiaGameEnd = (playersList: typeof mafiaPlayers) => {
+    const aliveMafia = playersList.filter(p => p.isAlive && p.role === 'mafia').length;
+    const aliveOthers = playersList.filter(p => p.isAlive && p.role !== 'mafia').length;
+    const now = new Date().toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' });
+
+    if (aliveMafia === 0) {
+      // Civilians win!
+      setGameState('won');
+      setMafiaPhase('ended');
+      setSessionPoints(p => p + 20); // Award 20 points!
+      setSessionWins(w => w + 1);
+
+      setChatLog((prev) => [
+        ...prev,
+        {
+          sender: 'bot',
+          time: now,
+          embed: {
+            title: '🏆 فاز المدنيون والمحقق والطبيب باللعبة! 👨‍🌾🩺',
+            description: `🎉 مبروك للفائزين! لقد تم نفي جميع المافيا بنجاح وإنقاذ المدينة!\n\n⭐ حصلت على **+20 نقاط**!\n\n👥 **الأدوار النهائية:**\n${playersList.map(p => `• @${p.name} ← **${p.role === 'mafia' ? 'مافيا 🔪' : p.role === 'detective' ? 'محقق 🕵️' : p.role === 'doctor' ? 'طبيب 🩺' : 'مدني 👨‍🌾'}** (${p.isAlive ? 'حي ✅' : 'ميت 💀'})`).join('\n')}`,
+            color: 'border-green-600 bg-green-950/20 text-green-200',
+          }
+        }
+      ]);
+      if (onWinRecorded) onWinRecorded();
+      return true;
+    }
+
+    if (aliveMafia >= aliveOthers) {
+      // Mafia wins!
+      setGameState('won'); // Technically a game end, let's mark as ended
+      setMafiaPhase('ended');
+
+      // If user was Mafia, award points
+      const isUserWin = playersList.find(p => p.name === playerName)?.role === 'mafia';
+      if (isUserWin) {
+        setSessionPoints(p => p + 20);
+        setSessionWins(w => w + 1);
+        if (onWinRecorded) onWinRecorded();
+      }
+
+      setChatLog((prev) => [
+        ...prev,
+        {
+          sender: 'bot',
+          time: now,
+          embed: {
+            title: '🏆 فازت المافيا باللعبة! 🔪',
+            description: `💀 لقد سيطرت المافيا على المدينة بالكامل وقضت على الجميع!\n\n👥 **الأدوار النهائية:**\n${playersList.map(p => `• @${p.name} ← **${p.role === 'mafia' ? 'مافيا 🔪' : p.role === 'detective' ? 'محقق 🕵️' : p.role === 'doctor' ? 'طبيب 🩺' : 'مدني 👨‍🌾'}** (${p.isAlive ? 'حي ✅' : 'ميت 💀'})`).join('\n')}`,
+            color: 'border-red-600 bg-red-950/20 text-red-200',
+          }
+        }
+      ]);
+      return true;
+    }
+
+    return false;
+  };
+
+  const startMafiaVotingPhase = () => {
+    setMafiaPhase('day_vote');
+    const now = new Date().toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' });
+
+    setChatLog((prev) => [
+      ...prev,
+      {
+        sender: 'bot',
+        time: now,
+        isMafiaVote: true,
+        embed: {
+          title: '🗳️ بدء مرحلة التصويت والمحاكمة!',
+          description: `صوّت الآن لنفي من تشتبه به من المدينة أو اختر تخطي التصويت.\nأمامكم 30 ثانية للإدلاء بأصواتكم!`,
+          color: 'border-orange-600 bg-orange-950/20 text-orange-200',
+        }
+      }
+    ]);
+  };
+
+  const handleMafiaVoteSubmit = (selectedTargetName: string) => {
+    const now = new Date().toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' });
+    const alivePlayers = mafiaPlayers.filter(p => p.isAlive);
+
+    // Bot players cast votes
+    const votesTally: Record<string, number> = {};
+    const botVotesList: Array<{ voter: string; choice: string }> = [];
+
+    // Player's vote
+    if (selectedTargetName !== 'skip') {
+      votesTally[selectedTargetName] = (votesTally[selectedTargetName] || 0) + 1;
+    }
+
+    // Bots vote
+    alivePlayers.forEach(p => {
+      if (p.name === playerName) return; // Skip user
+
+      // Simple AI voting logic:
+      // Mafia try to vote for civilians
+      // Civilians vote randomly
+      let choice = 'skip';
+      const possibleTargets = alivePlayers.filter(target => target.name !== p.name);
+      
+      if (Math.random() > 0.3 && possibleTargets.length > 0) {
+        // Vote for someone
+        const choiceObj = possibleTargets[Math.floor(Math.random() * possibleTargets.length)];
+        choice = choiceObj.name;
+        votesTally[choice] = (votesTally[choice] || 0) + 1;
+      }
+      botVotesList.push({ voter: p.name, choice });
+    });
+
+    // Display votes in chat
+    const voteLogs = [
+      `🗳️ **تفاصيل تصويت المدينة:**`,
+      `• أنت صوّتّ لـ: **${selectedTargetName === 'skip' ? 'تخطي التصويت 🏳️' : `@${selectedTargetName}`}**`,
+      ...botVotesList.map(b => `• @${b.voter} صوّت لـ: **${b.choice === 'skip' ? 'تخطي التصويت 🏳️' : `@${b.choice}`}**`)
+    ];
+
+    setChatLog((prev) => [
+      ...prev,
+      {
+        sender: 'bot',
+        time: now,
+        text: voteLogs.join('\n')
+      }
+    ]);
+
+    // Find highest voted target
+    let executedName = '';
+    let maxVotes = 0;
+    let isTie = false;
+
+    Object.keys(votesTally).forEach(name => {
+      if (votesTally[name] > maxVotes) {
+        maxVotes = votesTally[name];
+        executedName = name;
+        isTie = false;
+      } else if (votesTally[name] === maxVotes) {
+        isTie = true;
+      }
+    });
+
+    let executionText = '';
+    let updatedPlayers = [...mafiaPlayers];
+
+    if (isTie || maxVotes === 0) {
+      executionText = `🏳️ **قرار المحكمة: تعادل الأصوات! لم يتم نفي أحد هذه الجولة.**`;
+    } else {
+      updatedPlayers = mafiaPlayers.map(p => {
+        if (p.name === executedName) {
+          return { ...p, isAlive: false };
+        }
+        return p;
+      });
+      setMafiaPlayers(updatedPlayers);
+
+      const targetPlayerObj = mafiaPlayers.find(p => p.name === executedName);
+      const roleText = targetPlayerObj ? (targetPlayerObj.role === 'mafia' ? 'مافيا 🔪' : targetPlayerObj.role === 'detective' ? 'محقق 🕵️' : targetPlayerObj.role === 'doctor' ? 'طبيب 🩺' : 'مدني 👨‍🌾') : 'مدني';
+      executionText = `⚖️ **قرار المحكمة: تم نفي اللاعب @${executedName} بموجب تصويت الأغلبية!**\nدور السري كان: **[ ${roleText} ]**`;
+    }
+
+    setChatLog((prev) => [
+      ...prev,
+      {
+        sender: 'bot',
+        time: now,
+        embed: {
+          title: '⚖️ محكمة المدينة صدرت حكمها!',
+          description: executionText,
+          color: 'border-amber-600 bg-amber-950/20 text-amber-200',
+        }
+      }
+    ]);
+
+    // Check game end after hanging
+    const isOver = checkMafiaGameEnd(updatedPlayers);
+    if (isOver) return;
+
+    // Go to next Night
+    setMafiaCycle(c => c + 1);
+    setTimeout(() => {
+      triggerMafiaNight();
+    }, 4000);
+  };
+
+  const handleMafiaInspect = (targetName: string) => {
+    const targetObj = mafiaPlayers.find(p => p.name === targetName);
+    const isMafia = targetObj?.role === 'mafia';
+    const now = new Date().toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' });
+
+    setMafiaDMs(prev => [
+      ...prev,
+      {
+        text: `🕵️ نتيجة التحقيق السري:\nاللاعب @${targetName} هو **[ ${isMafia ? 'مافيا 🔪' : 'بريء 👨‍🌾'} ]**!`,
+        time: now
+      }
+    ]);
+
+    // Trigger Day transition
+    handleMafiaNightOutcome(null);
+  };
+
   // Start whichever game is selected
   const startCurrentGame = () => {
     if (gameMode === 'reverse') {
@@ -485,6 +960,8 @@ export const DiscordGameSimulator: React.FC<SimulatorProps> = ({ onWinRecorded }
       startFastestRound();
     } else if (gameMode === 'disassemble') {
       startDisassembleRound();
+    } else if (gameMode === 'mafia') {
+      startMafiaRound();
     } else {
       startXORound();
     }
@@ -1049,6 +1526,8 @@ export const DiscordGameSimulator: React.FC<SimulatorProps> = ({ onWinRecorded }
       } catch (err) {
         console.error(err);
       }
+    } else if (gameMode === 'mafia') {
+      setUserInput('');
     }
   };
 
@@ -1332,6 +1811,35 @@ export const DiscordGameSimulator: React.FC<SimulatorProps> = ({ onWinRecorded }
               {gameMode === 'xo' && <div className="w-1 h-1 bg-white rounded-full" />}
             </div>
           </button>
+
+          <button
+            id="sim-mode-mafia-btn"
+            onClick={() => {
+              setGameMode('mafia');
+              setGameState('idle');
+              setFeedback(null);
+            }}
+            className={`p-3 rounded-xl border text-right transition-all flex items-center justify-between ${
+              gameMode === 'mafia'
+                ? 'bg-rose-950/40 border-rose-500 text-white shadow-lg shadow-rose-900/20 ring-1 ring-rose-500'
+                : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-700'
+            }`}
+          >
+            <div>
+              <div className="flex items-center gap-1.5 mb-1">
+                <span className="text-lg">🔪</span>
+                <span className="font-bold text-sm text-white">مافيا</span>
+              </div>
+              <p className="text-[11px] text-slate-400">
+                <code className="text-rose-400 font-mono">!مافيا</code>
+              </p>
+            </div>
+            <div className={`w-3.5 h-3.5 rounded-full border-2 flex items-center justify-center ${
+              gameMode === 'mafia' ? 'border-rose-400 bg-rose-500' : 'border-slate-600'
+            }`}>
+              {gameMode === 'mafia' && <div className="w-1 h-1 bg-white rounded-full" />}
+            </div>
+          </button>
         </div>
       </div>
 
@@ -1349,7 +1857,7 @@ export const DiscordGameSimulator: React.FC<SimulatorProps> = ({ onWinRecorded }
                 <h3 className="text-white font-bold text-sm flex items-center gap-2">
                   <span>فعاليات-وألعاب</span>
                   <span className="text-[11px] bg-slate-800 text-slate-300 px-2 py-0.5 rounded-full font-normal">
-                    {gameMode === 'reverse' ? 'لعبة اعكس' : gameMode === 'flags' ? 'لعبة أعلام' : gameMode === 'harf' ? 'لعبة حرف' : gameMode === 'disassemble' ? 'لعبة فكك' : gameMode === 'fastest' ? 'لعبة أسرع' : gameMode === 'button' ? 'لعبة زر' : 'لعبة XO'}
+                    {gameMode === 'reverse' ? 'لعبة اعكس' : gameMode === 'flags' ? 'لعبة أعلام' : gameMode === 'harf' ? 'لعبة حرف' : gameMode === 'disassemble' ? 'لعبة فكك' : gameMode === 'fastest' ? 'لعبة أسرع' : gameMode === 'button' ? 'لعبة زر' : gameMode === 'mafia' ? 'لعبة مافيا' : 'لعبة XO'}
                   </span>
                 </h3>
                 <p className="text-[11px] text-slate-400">
@@ -1586,6 +2094,145 @@ export const DiscordGameSimulator: React.FC<SimulatorProps> = ({ onWinRecorded }
                             </div>
                           </div>
                         )}
+
+                        {msg.isMafiaLobby && mafiaPhase === 'lobby' && (
+                          <div className="pt-2 border-t border-slate-700/40">
+                            <div className="text-xs text-slate-300 font-semibold mb-2">
+                              خيارات غرفة اللعبة (Discord Buttons):
+                            </div>
+                            <div className="flex gap-2 flex-wrap">
+                              <button
+                                key="mafia-start-btn"
+                                onClick={handleStartMafiaGame}
+                                className="px-4 py-2 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 shadow-md text-white transition-all bg-indigo-600 hover:bg-indigo-500 active:scale-95 cursor-pointer"
+                              >
+                                <span>🎮</span>
+                                <span>بدء اللعبة</span>
+                              </button>
+                              <button
+                                key="mafia-cancel-btn"
+                                onClick={() => {
+                                  setGameState('idle');
+                                  setMafiaPhase('idle');
+                                  setChatLog(prev => [
+                                    ...prev,
+                                    {
+                                      sender: 'bot',
+                                      text: '❌ تم إلغاء غرفة لعبة مافيا.',
+                                      time: new Date().toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' })
+                                    }
+                                  ]);
+                                }}
+                                className="px-4 py-2 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 shadow-md text-white transition-all bg-slate-700 hover:bg-slate-600 active:scale-95 cursor-pointer"
+                              >
+                                <span>❌</span>
+                                <span>إلغاء</span>
+                              </button>
+                            </div>
+                          </div>
+                        )}
+
+                        {msg.isMafiaNight && mafiaPhase === 'night' && (
+                          <div className="pt-2 border-t border-slate-700/40">
+                            <div className="text-xs text-slate-300 font-semibold mb-2">
+                              القرار السري (Night Action):
+                            </div>
+                            {/* Check if user is alive */}
+                            {mafiaPlayers.find(p => p.name === playerName)?.isAlive ? (
+                              mafiaMyRole === 'mafia' ? (
+                                <div className="space-y-2">
+                                  <p className="text-[11px] text-rose-400">اختر لاعبًا لتصفيته ليلاً:</p>
+                                  <div className="grid grid-cols-2 gap-2 max-w-[280px]">
+                                    {mafiaPlayers.filter(p => p.isAlive && p.name !== playerName).map(p => (
+                                      <button
+                                        key={p.name}
+                                        onClick={() => handleMafiaNightOutcome(p.name)}
+                                        className="px-3 py-2 rounded-lg bg-red-950/60 hover:bg-red-900 border border-red-800 text-white text-xs font-bold transition-all active:scale-95 cursor-pointer"
+                                      >
+                                        🔪 تصفية {p.name}
+                                      </button>
+                                    ))}
+                                  </div>
+                                </div>
+                              ) : mafiaMyRole === 'detective' ? (
+                                <div className="space-y-2">
+                                  <p className="text-[11px] text-sky-400">اختر لاعبًا للكشف عن هويته:</p>
+                                  <div className="grid grid-cols-2 gap-2 max-w-[280px]">
+                                    {mafiaPlayers.filter(p => p.isAlive && p.name !== playerName).map(p => (
+                                      <button
+                                        key={p.name}
+                                        onClick={() => handleMafiaInspect(p.name)}
+                                        className="px-3 py-2 rounded-lg bg-sky-950/60 hover:bg-sky-900 border border-sky-800 text-white text-xs font-bold transition-all active:scale-95 cursor-pointer"
+                                      >
+                                        🕵️ فحص {p.name}
+                                      </button>
+                                    ))}
+                                  </div>
+                                </div>
+                              ) : mafiaMyRole === 'doctor' ? (
+                                <div className="space-y-2">
+                                  <p className="text-[11px] text-emerald-400">اختر لاعبًا لحمايته من المافيا الليلة:</p>
+                                  <div className="grid grid-cols-2 gap-2 max-w-[280px]">
+                                    {mafiaPlayers.filter(p => p.isAlive).map(p => (
+                                      <button
+                                        key={p.name}
+                                        onClick={() => {
+                                          setMafiaDoctorChoice(p.name);
+                                          const nowStr = new Date().toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' });
+                                          setMafiaDMs(prev => [
+                                            ...prev,
+                                            {
+                                              text: `🩺 نتيجة الحماية:\nلقد اخترت حماية اللاعب @${p.name} هذه الليلة! ستبقى هذه الحماية سرية لإنقاذ الأرواح.`,
+                                              time: nowStr
+                                            }
+                                          ]);
+                                          handleMafiaNightOutcome(null, p.name);
+                                        }}
+                                        className="px-3 py-2 rounded-lg bg-emerald-950/60 hover:bg-emerald-900 border border-emerald-800 text-white text-xs font-bold transition-all active:scale-95 cursor-pointer"
+                                      >
+                                        🩺 حماية {p.name}
+                                      </button>
+                                    ))}
+                                  </div>
+                                </div>
+                              ) : (
+                                <p className="text-xs text-slate-400 italic">👨‍🌾 أنت مدني صالح، تنام الآن بسلام وتتأمل النجوم في انتظار الصباح...</p>
+                              )
+                            ) : (
+                              <p className="text-xs text-rose-400 italic">👻 لقد تصفيت من اللعبة. راقب الأحداث بصمت!</p>
+                            )}
+                          </div>
+                        )}
+
+                        {msg.isMafiaVote && mafiaPhase === 'day_vote' && (
+                          <div className="pt-2 border-t border-slate-700/40">
+                            <div className="text-xs text-slate-300 font-semibold mb-2">
+                              الإدلاء بصوتك (Submit Vote):
+                            </div>
+                            {mafiaPlayers.find(p => p.name === playerName)?.isAlive ? (
+                              <div className="grid grid-cols-2 gap-2 max-w-[280px]">
+                                {mafiaPlayers.filter(p => p.isAlive).map(p => (
+                                  <button
+                                    key={p.name}
+                                    onClick={() => handleMafiaVoteSubmit(p.name)}
+                                    className="px-3 py-2 rounded-lg bg-orange-950/60 hover:bg-orange-900 border border-orange-800 text-white text-xs font-bold transition-all active:scale-95 cursor-pointer"
+                                  >
+                                    🗳️ نفي @{p.name} {p.name === playerName ? '(أنت)' : ''}
+                                  </button>
+                                ))}
+                                <button
+                                  key="mafia-vote-skip-btn"
+                                  onClick={() => handleMafiaVoteSubmit('skip')}
+                                  className="col-span-2 px-3 py-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-white text-xs font-bold transition-all active:scale-95 cursor-pointer"
+                                >
+                                  🏳️ تخطي التصويت
+                                </button>
+                              </div>
+                            ) : (
+                              <p className="text-xs text-rose-400 italic">👻 أنت ميت، لا يحق لك التصويت!</p>
+                            )}
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
@@ -1610,16 +2257,38 @@ export const DiscordGameSimulator: React.FC<SimulatorProps> = ({ onWinRecorded }
               </div>
             )}
 
-            {gameMode === 'xo' || gameMode === 'button' ? (
-              <div className="flex items-center justify-between bg-[#383A40] p-3 rounded-xl text-xs text-slate-300">
-                <div className="flex items-center gap-2">
-                  <span className="text-blue-400 font-bold">🔘 لعبة {gameMode === 'button' ? 'زر' : 'XO'}:</span>
-                  <span>العب بالضغط السريع مباشرة على الأزرار الملونة في الشات بالأعلى!</span>
+            {gameMode === 'xo' || gameMode === 'button' || gameMode === 'mafia' ? (
+              <div className="flex flex-col bg-[#383A40] p-3 rounded-xl text-xs text-slate-300 gap-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="text-blue-400 font-bold">
+                      {gameMode === 'mafia' ? '🪓 لعبة مافيا:' : `🔘 لعبة ${gameMode === 'button' ? 'زر' : 'XO'}:`}
+                    </span>
+                    <span>
+                      {gameMode === 'mafia'
+                        ? 'تفاعل باستخدام الأزرار التي تظهر في الشات والرسائل الخاصة في القائمة الجانبية!'
+                        : 'العب بالضغط السريع مباشرة على الأزرار الملونة في الشات بالأعلى!'}
+                    </span>
+                  </div>
+                  {gameState === 'running' && gameMode !== 'mafia' && (
+                    <span className="bg-slate-800 px-3 py-1 rounded-lg font-bold text-amber-300 animate-pulse">
+                      ⏱️ المؤقت جارٍ: {timeLeft} ث
+                    </span>
+                  )}
                 </div>
-                {gameState === 'running' && (
-                  <span className="bg-slate-800 px-3 py-1 rounded-lg font-bold text-amber-300 animate-pulse">
-                    ⏱️ المؤقت جارٍ: {timeLeft} ث
-                  </span>
+
+                {/* Direct button for Mafia day discussion override */}
+                {gameMode === 'mafia' && mafiaPhase === 'day_discussion' && (
+                  <div className="flex items-center gap-2 pt-2 border-t border-slate-700/50">
+                    <span className="text-amber-400 font-bold">قرارات النهار:</span>
+                    <button
+                      type="button"
+                      onClick={startMafiaVotingPhase}
+                      className="px-3 py-1.5 rounded-lg bg-orange-600 hover:bg-orange-500 text-white font-bold text-[11px] shadow-sm transition-all active:scale-95 cursor-pointer"
+                    >
+                      🗳️ إنهاء النقاش وبدء التصويت
+                    </button>
+                  </div>
                 )}
               </div>
             ) : (
@@ -1800,6 +2469,24 @@ export const DiscordGameSimulator: React.FC<SimulatorProps> = ({ onWinRecorded }
                   🏆 <strong>النقاط:</strong> +10 نقاط عند الفوز.
                 </div>
               </div>
+            ) : gameMode === 'mafia' ? (
+              <div className="text-xs text-slate-300 space-y-3 leading-relaxed">
+                <p className="bg-rose-950/30 border border-rose-800/40 p-3 rounded-xl text-rose-200">
+                  🪓 <strong>فكرة اللعبة:</strong> لعبة غموض وبقاء جماعية سرية. يتم توزيع الأدوار عشوائياً (مافيا 🔪، محقق 🕵️، طبيب 🩺، مدني 👨‍🌾).
+                </p>
+                <div className="space-y-1.5">
+                  <p className="font-semibold text-slate-200">✨ الأطوار والأدوار:</p>
+                  <ul className="list-disc list-inside text-slate-400 space-y-1">
+                    <li><strong>🌃 طور الليل:</strong> تبدأ المافيا بالتصفية سراً، ويقوم المحقق بفحص لاعب، ويقوم الطبيب بحماية لاعب آخر من القتل.</li>
+                    <li><strong>☀️ طور النهار:</strong> تستيقظ المدينة وتكتشف الضحية، ثم يبدأ نقاش علني لتبادل الشكوك.</li>
+                    <li><strong>🗳️ طور التصويت:</strong> تصوّت المدينة لنفي المشتبه به الأكبر للقضاء على المافيا.</li>
+                  </ul>
+                </div>
+                <div className="pt-2 border-t border-slate-800 text-[11px] text-slate-400">
+                  ⏱️ <strong>المؤقت الافتراضي:</strong> 30 ثانية لكل مرحلة.<br />
+                  🏆 <strong>النقاط:</strong> +20 نقطة للفريق الفائز.
+                </div>
+              </div>
             ) : (
               <div className="text-xs text-slate-300 space-y-3 leading-relaxed">
                 <p className="bg-amber-950/30 border border-amber-800/40 p-3 rounded-xl text-amber-200">
@@ -1823,6 +2510,49 @@ export const DiscordGameSimulator: React.FC<SimulatorProps> = ({ onWinRecorded }
               </div>
             )}
           </div>
+
+          {/* Mafia Secret DMs Panel */}
+          {gameMode === 'mafia' && mafiaPhase !== 'idle' && (
+            <div className="bg-slate-900 border border-rose-950/60 rounded-2xl p-5 shadow-xl space-y-3">
+              <h3 className="text-sm font-bold text-rose-400 flex items-center gap-1.5">
+                <span>📬 رسائلك الخاصة السرية (DMs)</span>
+                <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse" />
+              </h3>
+              <p className="text-[11px] text-slate-400 leading-relaxed">
+                في ديسكورد الحقيقي، يقوم البوت بإرسال دورك والنتائج في الخاص لمنع تسريب الهويات. يمكنك رؤية رسائلك الخاصة هنا:
+              </p>
+              
+              <div className="bg-slate-950/80 rounded-xl p-3 border border-slate-800/80 max-h-40 overflow-y-auto space-y-2">
+                {mafiaDMs.length === 0 ? (
+                  <p className="text-xs text-slate-500 italic text-center py-2">لا توجد رسائل سرية حتى الآن...</p>
+                ) : (
+                  mafiaDMs.map((dm, idx) => (
+                    <div key={idx} className="text-xs border-b border-slate-800/40 pb-2 last:border-0 last:pb-0">
+                      <div className="flex items-center justify-between text-[10px] text-slate-500 mb-1">
+                        <span>من: جعفر (BOT)</span>
+                        <span>{dm.time}</span>
+                      </div>
+                      <p className="text-slate-200 whitespace-pre-line leading-relaxed font-mono text-[11px] bg-slate-900/60 p-2 rounded border border-slate-800/30">
+                        {dm.text}
+                      </p>
+                    </div>
+                  ))
+                )}
+              </div>
+
+              {/* Secret status badges */}
+              {mafiaPhase !== 'lobby' && (
+                <div className="flex items-center gap-2 pt-1">
+                  <span className="text-[10px] bg-rose-950/60 border border-rose-800/40 text-rose-300 px-2 py-1 rounded-md font-bold">
+                    دورك: {mafiaMyRole === 'mafia' ? '🔪 مافيا' : mafiaMyRole === 'detective' ? '🕵️ محقق' : mafiaMyRole === 'doctor' ? 'طبيب 🩺' : '👨‍🌾 مدني'}
+                  </span>
+                  <span className="text-[10px] bg-slate-800 border border-slate-700 text-slate-300 px-2 py-1 rounded-md font-bold">
+                    حالتك: {mafiaPlayers.find(p => p.name === playerName)?.isAlive ? '💚 حي' : '💀 ميت'}
+                  </span>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Quick Discord Commands Box */}
           <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl">

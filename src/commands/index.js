@@ -16,6 +16,7 @@ import buttonCommand from './button.js';
 import fastestCommand from './fastest.js';
 import disassembleCommand from './disassemble.js';
 import correctCommand from './correct.js';
+import mafiaCommand from './mafia.js';
 import config from '../config/index.js';
 import logger from '../utils/logger.js';
 
@@ -29,6 +30,7 @@ export const commandsList = [
   disassembleCommand,
   correctCommand,
   xoCommand,
+  mafiaCommand,
   leaderboardCommand,
   gamesCommand,
   pingCommand,
@@ -105,7 +107,7 @@ export async function handleMessage(message) {
   } else {
     // 2. Also support direct Arabic commands without exclamation mark if enabled
     const firstWord = content.split(/\s+/)[0].toLowerCase();
-    if (['اعكس', 'اعلام', 'أعلام', 'حرف', 'الحرف', 'خمن', 'خمن_الرقم', 'رقم', 'الرقم', 'زر', 'الزر', 'button', 'اسرع', 'أسرع', 'fastest', 'فكك', 'فك', 'disassemble', 'صحح', 'الصحح', 'correct', 'نقاط', 'النقاط', 'مساعدة', 'العاب', 'ألعاب', 'الالعاب', 'الألعاب', 'games', 'guess'].includes(firstWord)) {
+    if (['اعكس', 'اعلام', 'أعلام', 'حرف', 'الحرف', 'خمن', 'خمن_الرقم', 'رقم', 'الرقم', 'زر', 'الزر', 'button', 'اسرع', 'أسرع', 'fastest', 'فكك', 'فك', 'disassemble', 'صحح', 'الصحح', 'correct', 'مافيا', 'mafia', 'نقاط', 'النقاط', 'مساعدة', 'العاب', 'ألعاب', 'الالعاب', 'الألعاب', 'games', 'guess'].includes(firstWord)) {
       commandKey = firstWord;
     }
   }
