@@ -137,6 +137,7 @@ class DatabaseManager {
             disassemble_wins INTEGER DEFAULT 0,
             correct_wins INTEGER DEFAULT 0,
             xo_wins INTEGER DEFAULT 0,
+            hide_and_seek_wins INTEGER DEFAULT 0,
             first_seen TIMESTAMPTZ DEFAULT NOW(),
             last_won TIMESTAMPTZ DEFAULT NOW(),
             updated_at TIMESTAMPTZ DEFAULT NOW(),
@@ -152,6 +153,7 @@ class DatabaseManager {
           ALTER TABLE jafar_scores ADD COLUMN IF NOT EXISTS disassemble_wins INTEGER DEFAULT 0;
           ALTER TABLE jafar_scores ADD COLUMN IF NOT EXISTS correct_wins INTEGER DEFAULT 0;
           ALTER TABLE jafar_scores ADD COLUMN IF NOT EXISTS xo_wins INTEGER DEFAULT 0;
+          ALTER TABLE jafar_scores ADD COLUMN IF NOT EXISTS hide_and_seek_wins INTEGER DEFAULT 0;
 
           CREATE INDEX IF NOT EXISTS idx_jafar_scores_guild_pts 
           ON jafar_scores (guild_id, points DESC, total_wins DESC);
@@ -295,6 +297,7 @@ class DatabaseManager {
             disassemble: Number(row.disassemble_wins || 0),
             correct: Number(row.correct_wins || 0),
             xo: Number(row.xo_wins || 0),
+            hide_and_seek: Number(row.hide_and_seek_wins || 0),
           },
           firstSeen: row.first_seen ? new Date(row.first_seen).toISOString() : new Date().toISOString(),
           lastWon: row.last_won ? new Date(row.last_won).toISOString() : null,
@@ -337,6 +340,7 @@ class DatabaseManager {
           disassemble: 0,
           correct: 0,
           xo: 0,
+          hide_and_seek: 0,
         },
         firstSeen: new Date().toISOString(),
         lastWon: null,
@@ -352,7 +356,7 @@ class DatabaseManager {
    * @param {string} guildId 
    * @param {string} userId 
    * @param {string} username 
-   * @param {'reverse' | 'flags' | 'harf' | 'guess_number' | 'button' | 'fastest' | 'disassemble' | 'correct' | 'xo'} gameType 
+   * @param {'reverse' | 'flags' | 'harf' | 'guess_number' | 'button' | 'fastest' | 'disassemble' | 'correct' | 'xo' | 'hide_and_seek' | 'mafia'} gameType 
    * @param {number} points 
    * @returns {object} Updated user stats
    */
@@ -386,14 +390,15 @@ class DatabaseManager {
       const disassembleWin = gameType === 'disassemble' ? 1 : 0;
       const correctWin = gameType === 'correct' ? 1 : 0;
       const xoWin = gameType === 'xo' ? 1 : 0;
+      const hideAndSeekWin = gameType === 'hide_and_seek' ? 1 : 0;
 
       this.pool.query(`
         INSERT INTO jafar_scores (
           guild_id, user_id, username, points, total_wins,
-          reverse_wins, flags_wins, harf_wins, guess_number_wins, button_wins, fastest_wins, disassemble_wins, correct_wins, xo_wins,
+          reverse_wins, flags_wins, harf_wins, guess_number_wins, button_wins, fastest_wins, disassemble_wins, correct_wins, xo_wins, hide_and_seek_wins,
           first_seen, last_won, updated_at
         )
-        VALUES ($1, $2, $3, $4, 1, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW(), NOW(), NOW())
+        VALUES ($1, $2, $3, $4, 1, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, NOW(), NOW(), NOW())
         ON CONFLICT (guild_id, user_id) DO UPDATE SET
           username = EXCLUDED.username,
           points = jafar_scores.points + EXCLUDED.points,
@@ -407,6 +412,7 @@ class DatabaseManager {
           disassemble_wins = COALESCE(jafar_scores.disassemble_wins, 0) + EXCLUDED.disassemble_wins,
           correct_wins = COALESCE(jafar_scores.correct_wins, 0) + EXCLUDED.correct_wins,
           xo_wins = COALESCE(jafar_scores.xo_wins, 0) + EXCLUDED.xo_wins,
+          hide_and_seek_wins = COALESCE(jafar_scores.hide_and_seek_wins, 0) + EXCLUDED.hide_and_seek_wins,
           last_won = NOW(),
           updated_at = NOW()
         RETURNING *;
@@ -423,7 +429,8 @@ class DatabaseManager {
         fastestWin,
         disassembleWin,
         correctWin,
-        xoWin
+        xoWin,
+        hideAndSeekWin
       ]).catch((err) => {
         logger.warn(
           `خطأ أثناء حفظ النتيجة في PostgreSQL ➔ [${err.name || 'Error'}] ${err.message}${err.code ? ` (Code: ${err.code})` : ''}`,

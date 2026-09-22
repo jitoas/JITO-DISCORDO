@@ -234,7 +234,7 @@ export const GAME_REGISTRY = [
     command: '!غميضة',
     slashCommand: '/غميضة',
     type: 'multiplayer',
-    status: 'upcoming',
+    status: 'available',
     description: 'لعبة الغميضة والبحث عن المختبئين',
   },
   {

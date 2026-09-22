@@ -517,6 +517,22 @@ async function startServer() {
     });
   });
 
+  // Simulator Endpoints: Test "Hide and Seek"
+  app.post('/api/simulate/hide-and-seek/record', (req, res) => {
+    try {
+      const { playerName, guildId = 'demo-server', points = 10 } = req.body || {};
+      const user = db.addWin(guildId, playerName || 'مستخدم تجريبي', playerName || 'مستخدم تجريبي', 'hide_and_seek', points);
+      return res.json({
+        success: true,
+        points,
+        user,
+      });
+    } catch (err: any) {
+      logger.error('Error in /api/simulate/hide-and-seek/record', err);
+      return res.status(500).json({ success: false, error: err?.message || 'خطأ في تسجيل الفوز' });
+    }
+  });
+
   // --- Vite / Static Files Middleware ---
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({

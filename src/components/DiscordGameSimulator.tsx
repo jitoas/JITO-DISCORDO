@@ -19,7 +19,7 @@ interface SimulatorProps {
 }
 
 export const DiscordGameSimulator: React.FC<SimulatorProps> = ({ onWinRecorded }) => {
-  const [gameMode, setGameMode] = useState<'reverse' | 'flags' | 'harf' | 'guess_number' | 'button' | 'fastest' | 'disassemble' | 'xo' | 'mafia'>('reverse');
+  const [gameMode, setGameMode] = useState<'reverse' | 'flags' | 'harf' | 'guess_number' | 'button' | 'fastest' | 'disassemble' | 'xo' | 'mafia' | 'hide_and_seek'>('reverse');
   const [gameState, setGameState] = useState<'idle' | 'running' | 'won' | 'timeout'>('idle');
   
   // Game Questions
@@ -48,6 +48,15 @@ export const DiscordGameSimulator: React.FC<SimulatorProps> = ({ onWinRecorded }
   const [mafiaMyRole, setMafiaMyRole] = useState<'mafia' | 'detective' | 'doctor' | 'civilian' | null>(null);
   const [mafiaDMs, setMafiaDMs] = useState<Array<{ text: string; time: string }>>([]);
   const [mafiaDoctorChoice, setMafiaDoctorChoice] = useState<string | null>(null);
+
+  // Hide & Seek State
+  const [hasPhase, setHasPhase] = useState<'idle' | 'lobby' | 'hiding' | 'seeking' | 'ended'>('idle');
+  const [hasPlayers, setHasPlayers] = useState<Array<{ name: string; role: 'seeker' | 'hider'; location: string | null; found: boolean }>>([]);
+  const [hasAttempts, setHasAttempts] = useState<number>(0);
+  const [hasMaxAttempts, setHasMaxAttempts] = useState<number>(0);
+  const [hasSeeker, setHasSeeker] = useState<string>('');
+  const [hasMyRole, setHasMyRole] = useState<'seeker' | 'hider' | null>(null);
+  const [hasMyHiddenSpot, setHasMyHiddenSpot] = useState<string | null>(null);
 
   // Player State
   const [playerName, setPlayerName] = useState('البطل المغامر');
@@ -217,6 +226,325 @@ export const DiscordGameSimulator: React.FC<SimulatorProps> = ({ onWinRecorded }
       ]);
     } catch (err) {
       console.error('Error starting harf round:', err);
+    }
+  };
+
+  // Start a new Hide & Seek Round
+  const startHideAndSeekRound = () => {
+    clearActiveTimer();
+    isRoundEndedRef.current = false;
+    setGameState('running');
+    setUserInput('');
+    setFeedback(null);
+    setHasPhase('lobby');
+    setHasMyRole(null);
+    setHasMyHiddenSpot(null);
+
+    // Pre-create 4 players (User + 3 bots)
+    const playersInit = [
+      { name: playerName, role: 'hider' as const, location: null as string | null, found: false },
+      { name: 'أحمد', role: 'hider' as const, location: null as string | null, found: false },
+      { name: 'خالد', role: 'hider' as const, location: null as string | null, found: false },
+      { name: 'سارة', role: 'hider' as const, location: null as string | null, found: false },
+    ];
+
+    setHasPlayers(playersInit);
+
+    const now = new Date().toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' });
+    setChatLog((prev) => [
+      ...prev,
+      {
+        sender: 'bot',
+        isButtonGame: true,
+        isMafiaLobby: true, // reuse visual container style
+        embed: {
+          title: '🙈 لعبة غميضة — Hide & Seek',
+          description: `🏃 **"اهرب واختبئ قبل أن يمسك بك الباحث!"**\n\n` +
+            `👥 **اللاعبون المنضمون (4/12):**\n` +
+            `1. @${playerName} (منشئ اللعبة 👑)\n` +
+            `2. @أحمد\n` +
+            `3. @خالد\n` +
+            `4. @سارة\n\n` +
+            `💡 اضغط على زر **بدء اللعبة** لبدء مرحلة توزيع الأدوار والاختباء!`,
+          color: 'border-blue-500 bg-blue-950/20 text-blue-200',
+        },
+        time: now,
+      },
+    ]);
+  };
+
+  const handleHasStart = () => {
+    if (hasPhase !== 'lobby') return;
+    setHasPhase('hiding');
+
+    // Assign roles: 1 random seeker, rest hiders
+    const seekerIndex = Math.floor(Math.random() * 4);
+    const updatedPlayers = hasPlayers.map((p, idx) => {
+      const isSeeker = idx === seekerIndex;
+      return {
+        ...p,
+        role: (isSeeker ? 'seeker' : 'hider') as 'seeker' | 'hider',
+      };
+    });
+
+    setHasPlayers(updatedPlayers);
+    const myPlayer = updatedPlayers.find(p => p.name === playerName);
+    const isUserSeeker = myPlayer?.role === 'seeker';
+    setHasMyRole(isUserSeeker ? 'seeker' : 'hider');
+    
+    const seekerName = updatedPlayers.find(p => p.role === 'seeker')?.name || '';
+    setHasSeeker(seekerName);
+
+    const now = new Date().toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' });
+    setChatLog((prev) => [
+      ...prev,
+      {
+        sender: 'system',
+        text: `📢 تم توزيع الأدوار!\n${isUserSeeker ? '🙈 دورك السري: **الباحث**!' : '🫣 دورك السري: **مختبئ**! اهرب واختبئ بسرعة.'}`,
+        time: now,
+      },
+      {
+        sender: 'bot',
+        embed: {
+          title: '🙈 تم اختيار الباحث سراً!',
+          description: `🫣 **وقت الاختباء بدأ (15 ثانية)!**\n` +
+            `يرجى من جميع المختبئين اختيار مكانهم من الأزرار بالأسفل.`,
+          color: 'border-amber-500 bg-amber-950/20 text-amber-200',
+        },
+        time: now,
+      }
+    ]);
+  };
+
+  const handleHasHide = (spotId: string, spotName: string) => {
+    if (hasPhase !== 'hiding') return;
+    setHasMyHiddenSpot(spotId);
+
+    // Update player location for user
+    const updatedPlayers = hasPlayers.map(p => {
+      if (p.name === playerName) {
+        return { ...p, location: spotId };
+      }
+      return p;
+    });
+
+    // Make computer players (hiders) hide randomly
+    const locations = ['sofa', 'door', 'box', 'plant', 'table', 'closet'];
+    const finalPlayers = updatedPlayers.map(p => {
+      if (p.role === 'hider' && p.name !== playerName) {
+        const randomLoc = locations[Math.floor(Math.random() * locations.length)];
+        return { ...p, location: randomLoc };
+      }
+      return p;
+    });
+
+    setHasPlayers(finalPlayers);
+
+    const now = new Date().toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' });
+    setChatLog((prev) => [
+      ...prev,
+      {
+        sender: 'system',
+        text: `✅ اختبأت بنجاح في: **${spotName}**!`,
+        time: now,
+      }
+    ]);
+
+    // Fast-forward to seeking phase
+    handleHasStartSeeking(finalPlayers);
+  };
+
+  const handleHasStartSeeking = (playersList: typeof hasPlayers) => {
+    setHasPhase('seeking');
+    const hidersCount = playersList.filter(p => p.role === 'hider').length;
+    const maxAtt = hidersCount + 2;
+    setHasMaxAttempts(maxAtt);
+    setHasAttempts(maxAtt);
+
+    const now = new Date().toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' });
+    setChatLog((prev) => [
+      ...prev,
+      {
+        sender: 'bot',
+        text: `🔎 **بدأ البحث!** لقد تم الإعلان عن الباحث وهو: @${hasSeeker || playersList.find(p => p.role === 'seeker')?.name}`,
+        time: now,
+      }
+    ]);
+
+    // If user is hider, simulate Seeker searching locations automatically
+    if (hasMyRole === 'hider') {
+      simulateBotSearching(playersList, maxAtt);
+    }
+  };
+
+  const simulateBotSearching = async (currentPlayers: typeof hasPlayers, initialAtt: number) => {
+    let tempPlayers = [...currentPlayers];
+    let attemptsLeft = initialAtt;
+    const locations = [
+      { id: 'sofa', name: '🛋️ الكنبة' },
+      { id: 'door', name: '🚪 خلف الباب' },
+      { id: 'box', name: '📦 داخل الصندوق' },
+      { id: 'plant', name: '🪴 خلف النبتة' },
+      { id: 'table', name: '🪑 تحت الطاولة' },
+      { id: 'closet', name: '🧥 داخل الخزانة' }
+    ];
+
+    const seekerName = hasSeeker || currentPlayers.find(p => p.role === 'seeker')?.name || 'الباحث';
+
+    for (let step = 0; step < initialAtt; step++) {
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      
+      if (isRoundEndedRef.current) break;
+
+      const randomSpot = locations[Math.floor(Math.random() * locations.length)];
+      const foundInSpot = tempPlayers.filter(p => p.role === 'hider' && p.location === randomSpot.id && !p.found);
+
+      const now = new Date().toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' });
+
+      if (foundInSpot.length > 0) {
+        tempPlayers = tempPlayers.map(p => {
+          if (p.location === randomSpot.id) {
+            return { ...p, found: true };
+          }
+          return p;
+        });
+        setHasPlayers(tempPlayers);
+
+        const foundNames = foundInSpot.map(p => `@${p.name}`).join(', ');
+        setChatLog((prev) => [
+          ...prev,
+          {
+            sender: 'bot',
+            text: `🎯 **تم العثور على لاعب!** وجد @${seekerName} ${foundNames} في **${randomSpot.name}**!`,
+            time: now,
+          }
+        ]);
+      } else {
+        setChatLog((prev) => [
+          ...prev,
+          {
+            sender: 'bot',
+            text: `❌ **ما لقيت أحد!** بحث @${seekerName} في **${randomSpot.name}** ولم يجد أحداً هناك.`,
+            time: now,
+          }
+        ]);
+      }
+
+      attemptsLeft--;
+      setHasAttempts(attemptsLeft);
+
+      const remainingHiders = tempPlayers.filter(p => p.role === 'hider' && !p.found);
+      if (remainingHiders.length === 0) {
+        handleHasEndGame('seeker', tempPlayers);
+        break;
+      }
+
+      if (attemptsLeft <= 0) {
+        handleHasEndGame('hiders', tempPlayers);
+        break;
+      }
+    }
+  };
+
+  const handleHasSeekClick = (spotId: string, spotName: string) => {
+    if (hasPhase !== 'seeking' || hasMyRole !== 'seeker' || hasAttempts <= 0) return;
+
+    let tempPlayers = [...hasPlayers];
+    const foundInSpot = tempPlayers.filter(p => p.role === 'hider' && p.location === spotId && !p.found);
+    const now = new Date().toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' });
+
+    if (foundInSpot.length > 0) {
+      tempPlayers = tempPlayers.map(p => {
+        if (p.location === spotId) {
+          return { ...p, found: true };
+        }
+        return p;
+      });
+      setHasPlayers(tempPlayers);
+
+      const foundNames = foundInSpot.map(p => `@${p.name}`).join(', ');
+      setChatLog((prev) => [
+        ...prev,
+        {
+          sender: 'bot',
+          text: `🎯 **تم العثور على لاعب!** وجد @${playerName} ${foundNames} في **${spotName}**!`,
+          time: now,
+        }
+      ]);
+    } else {
+      setChatLog((prev) => [
+        ...prev,
+        {
+          sender: 'bot',
+          text: `❌ **ما لقيت أحد!** بحث @${playerName} في **${spotName}** ولم يجد أحداً هناك.`,
+          time: now,
+        }
+      ]);
+    }
+
+    const nextAttempts = hasAttempts - 1;
+    setHasAttempts(nextAttempts);
+
+    const remainingHiders = tempPlayers.filter(p => p.role === 'hider' && !p.found);
+    if (remainingHiders.length === 0) {
+      handleHasEndGame('seeker', tempPlayers);
+    } else if (nextAttempts <= 0) {
+      handleHasEndGame('hiders', tempPlayers);
+    }
+  };
+
+  const handleHasEndGame = (winner: 'seeker' | 'hiders', finalPlayers: typeof hasPlayers) => {
+    setHasPhase('ended');
+    setGameState('idle');
+    isRoundEndedRef.current = true;
+
+    const isUserWin = (winner === 'seeker' && hasMyRole === 'seeker') || (winner === 'hiders' && hasMyRole === 'hider' && !finalPlayers.find(p => p.name === playerName)?.found);
+
+    const pointsToAward = 10;
+    const now = new Date().toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' });
+
+    const foundList = finalPlayers.filter(p => p.role === 'hider' && p.found);
+    const survivorList = finalPlayers.filter(p => p.role === 'hider' && !p.found);
+
+    const locationsMap: Record<string, string> = {
+      sofa: '🛋️ الكنبة',
+      door: '🚪 خلف الباب',
+      box: '📦 داخل الصندوق',
+      plant: '🪴 خلف النبتة',
+      table: '🪑 تحت الطاولة',
+      closet: '🧥 داخل الخزانة'
+    };
+
+    setChatLog((prev) => [
+      ...prev,
+      {
+        sender: 'bot',
+        embed: {
+          title: '🙈 انتهت لعبة غميضة!',
+          description: `🏆 **الفائزون:** ${winner === 'seeker' ? 'الباحث 🕵️' : 'المختبئون الناجون 🫣'}\n\n` +
+            `🔎 **الباحث:** @${hasSeeker || finalPlayers.find(p => p.role === 'seeker')?.name}\n\n` +
+            `🎯 **الذين تم العثور عليهم (${foundList.length}):**\n${foundList.map(p => `• @${p.name} (${locationsMap[p.location || '']})`).join('\n') || '• لا أحد'}\n\n` +
+            `🫣 **الناجون (${survivorList.length}):**\n${survivorList.map(p => `• @${p.name} (${locationsMap[p.location || '']})`).join('\n') || '• لا أحد'}\n\n` +
+            `⭐ **النقاط المكتسبة:** ${isUserWin ? `@${playerName} (**+${pointsToAward}**)` : 'لا أحد من اللاعبين الفعليين'}`,
+          color: winner === 'seeker' ? 'border-red-500 bg-red-950/20 text-red-200' : 'border-green-500 bg-green-950/20 text-green-200',
+        },
+        time: now,
+      }
+    ]);
+
+    if (isUserWin) {
+      setSessionPoints(prev => prev + pointsToAward);
+      setSessionWins(prev => prev + 1);
+      setStreak(prev => prev + 1);
+      if (onWinRecorded) {
+        fetch('/api/simulate/hide-and-seek/record', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ playerName, points: pointsToAward })
+        }).then(() => onWinRecorded()).catch(err => console.error(err));
+      }
+    } else {
+      setStreak(0);
     }
   };
 
@@ -962,6 +1290,8 @@ export const DiscordGameSimulator: React.FC<SimulatorProps> = ({ onWinRecorded }
       startDisassembleRound();
     } else if (gameMode === 'mafia') {
       startMafiaRound();
+    } else if (gameMode === 'hide_and_seek') {
+      startHideAndSeekRound();
     } else {
       startXORound();
     }
@@ -1840,6 +2170,35 @@ export const DiscordGameSimulator: React.FC<SimulatorProps> = ({ onWinRecorded }
               {gameMode === 'mafia' && <div className="w-1 h-1 bg-white rounded-full" />}
             </div>
           </button>
+
+          <button
+            id="sim-mode-hide-and-seek-btn"
+            onClick={() => {
+              setGameMode('hide_and_seek');
+              setGameState('idle');
+              setFeedback(null);
+            }}
+            className={`p-3 rounded-xl border text-right transition-all flex items-center justify-between ${
+              gameMode === 'hide_and_seek'
+                ? 'bg-blue-950/40 border-blue-500 text-white shadow-lg shadow-blue-900/20 ring-1 ring-blue-500'
+                : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-700'
+            }`}
+          >
+            <div>
+              <div className="flex items-center gap-1.5 mb-1">
+                <span className="text-lg">🙈</span>
+                <span className="font-bold text-sm text-white">غميضة</span>
+              </div>
+              <p className="text-[11px] text-slate-400">
+                <code className="text-blue-400 font-mono">!غميضة</code>
+              </p>
+            </div>
+            <div className={`w-3.5 h-3.5 rounded-full border-2 flex items-center justify-center ${
+              gameMode === 'hide_and_seek' ? 'border-blue-400 bg-blue-500' : 'border-slate-600'
+            }`}>
+              {gameMode === 'hide_and_seek' && <div className="w-1 h-1 bg-white rounded-full" />}
+            </div>
+          </button>
         </div>
       </div>
 
@@ -1857,7 +2216,7 @@ export const DiscordGameSimulator: React.FC<SimulatorProps> = ({ onWinRecorded }
                 <h3 className="text-white font-bold text-sm flex items-center gap-2">
                   <span>فعاليات-وألعاب</span>
                   <span className="text-[11px] bg-slate-800 text-slate-300 px-2 py-0.5 rounded-full font-normal">
-                    {gameMode === 'reverse' ? 'لعبة اعكس' : gameMode === 'flags' ? 'لعبة أعلام' : gameMode === 'harf' ? 'لعبة حرف' : gameMode === 'disassemble' ? 'لعبة فكك' : gameMode === 'fastest' ? 'لعبة أسرع' : gameMode === 'button' ? 'لعبة زر' : gameMode === 'mafia' ? 'لعبة مافيا' : 'لعبة XO'}
+                    {gameMode === 'reverse' ? 'لعبة اعكس' : gameMode === 'flags' ? 'لعبة أعلام' : gameMode === 'harf' ? 'لعبة حرف' : gameMode === 'disassemble' ? 'لعبة فكك' : gameMode === 'fastest' ? 'لعبة أسرع' : gameMode === 'button' ? 'لعبة زر' : gameMode === 'mafia' ? 'لعبة مافيا' : gameMode === 'hide_and_seek' ? 'لعبة غميضة' : 'لعبة XO'}
                   </span>
                 </h3>
                 <p className="text-[11px] text-slate-400">
@@ -2233,6 +2592,73 @@ export const DiscordGameSimulator: React.FC<SimulatorProps> = ({ onWinRecorded }
                             )}
                           </div>
                         )}
+
+                        {gameMode === 'hide_and_seek' && hasPhase === 'lobby' && msg.isMafiaLobby && (
+                          <div className="pt-2 border-t border-slate-700/40">
+                            <div className="text-xs text-slate-300 font-semibold mb-2">
+                              خيارات لعبة الغميضة (Discord Buttons):
+                            </div>
+                            <div className="flex gap-2 flex-wrap">
+                              <button
+                                onClick={handleHasStart}
+                                className="px-4 py-2 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 shadow-md text-white transition-all bg-emerald-600 hover:bg-emerald-500 active:scale-95 cursor-pointer"
+                              >
+                                <span>▶️</span>
+                                <span>بدء اللعبة</span>
+                              </button>
+                            </div>
+                          </div>
+                        )}
+
+                        {gameMode === 'hide_and_seek' && hasPhase === 'hiding' && msg.isMafiaLobby && (
+                          <div className="pt-2 border-t border-slate-700/40">
+                            <div className="text-xs text-slate-300 font-semibold mb-2">
+                              اختر مكان اختبائك سراً (Hide Button):
+                            </div>
+                            {hasMyRole === 'hider' ? (
+                              !hasMyHiddenSpot ? (
+                                <div className="grid grid-cols-2 md:grid-cols-3 gap-2 max-w-[400px]">
+                                  <button onClick={() => handleHasHide('sofa', '🛋️ الكنبة')} className="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold transition-all active:scale-95 cursor-pointer">🛋️ الكنبة</button>
+                                  <button onClick={() => handleHasHide('door', '🚪 خلف الباب')} className="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold transition-all active:scale-95 cursor-pointer">🚪 خلف الباب</button>
+                                  <button onClick={() => handleHasHide('box', '📦 داخل الصندوق')} className="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold transition-all active:scale-95 cursor-pointer">📦 داخل الصندوق</button>
+                                  <button onClick={() => handleHasHide('plant', '🪴 خلف النبتة')} className="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold transition-all active:scale-95 cursor-pointer">🪴 خلف النبتة</button>
+                                  <button onClick={() => handleHasHide('table', '🪑 تحت الطاولة')} className="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold transition-all active:scale-95 cursor-pointer">🪑 تحت الطاولة</button>
+                                  <button onClick={() => handleHasHide('closet', '🧥 داخل الخزانة')} className="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold transition-all active:scale-95 cursor-pointer">🧥 داخل الخزانة</button>
+                                </div>
+                              ) : (
+                                <p className="text-xs text-emerald-400 font-medium">✅ لقد اختبأت بنجاح! انتظر الباحث ليبدأ اللعب.</p>
+                              )
+                            ) : (
+                              <p className="text-xs text-amber-400 italic">🙈 أنت الباحث! انتظر حتى يختبئ جميع اللاعبين الآخرين...</p>
+                            )}
+                          </div>
+                        )}
+
+                        {gameMode === 'hide_and_seek' && hasPhase === 'seeking' && msg.isMafiaLobby && (
+                          <div className="pt-2 border-t border-slate-700/40">
+                            <div className="text-xs text-slate-300 font-semibold mb-2">
+                              أماكن البحث المتاحة للباحث (Search Spot):
+                            </div>
+                            {hasMyRole === 'seeker' ? (
+                              <div className="space-y-2">
+                                <p className="text-[11px] text-orange-400">المحاولات المتبقية: {hasAttempts} / {hasMaxAttempts}</p>
+                                <div className="grid grid-cols-2 md:grid-cols-3 gap-2 max-w-[400px]">
+                                  <button onClick={() => handleHasSeekClick('sofa', '🛋️ الكنبة')} className="px-3 py-2 rounded-lg bg-blue-900/60 hover:bg-blue-800 border border-blue-700 text-white text-xs font-bold transition-all active:scale-95 cursor-pointer">🛋️ الكنبة</button>
+                                  <button onClick={() => handleHasSeekClick('door', '🚪 خلف الباب')} className="px-3 py-2 rounded-lg bg-blue-900/60 hover:bg-blue-800 border border-blue-700 text-white text-xs font-bold transition-all active:scale-95 cursor-pointer">🚪 خلف الباب</button>
+                                  <button onClick={() => handleHasSeekClick('box', '📦 داخل الصندوق')} className="px-3 py-2 rounded-lg bg-blue-900/60 hover:bg-blue-800 border border-blue-700 text-white text-xs font-bold transition-all active:scale-95 cursor-pointer">📦 داخل الصندوق</button>
+                                  <button onClick={() => handleHasSeekClick('plant', '🪴 خلف النبتة')} className="px-3 py-2 rounded-lg bg-blue-900/60 hover:bg-blue-800 border border-blue-700 text-white text-xs font-bold transition-all active:scale-95 cursor-pointer">🪴 خلف النبتة</button>
+                                  <button onClick={() => handleHasSeekClick('table', '🪑 تحت الطاولة')} className="px-3 py-2 rounded-lg bg-blue-900/60 hover:bg-blue-800 border border-blue-700 text-white text-xs font-bold transition-all active:scale-95 cursor-pointer">🪑 تحت الطاولة</button>
+                                  <button onClick={() => handleHasSeekClick('closet', '🧥 داخل الخزانة')} className="px-3 py-2 rounded-lg bg-blue-900/60 hover:bg-blue-800 border border-blue-700 text-white text-xs font-bold transition-all active:scale-95 cursor-pointer">🧥 داخل الخزانة</button>
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="space-y-1">
+                                <p className="text-xs text-amber-400 italic">🔎 الباحث يفتش في الأنحاء حالياً...</p>
+                                <p className="text-[11px] text-slate-400 font-medium">حالتك: {hasPlayers.find(p => p.name === playerName)?.found ? '💀 تم العثور عليك!' : '💚 لم يتم العثور عليك بعد (مختبئ)'}</p>
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
@@ -2477,7 +2903,7 @@ export const DiscordGameSimulator: React.FC<SimulatorProps> = ({ onWinRecorded }
                 <div className="space-y-1.5">
                   <p className="font-semibold text-slate-200">✨ الأطوار والأدوار:</p>
                   <ul className="list-disc list-inside text-slate-400 space-y-1">
-                    <li><strong>🌃 طور الليل:</strong> تبدأ المافيا بالتصفية سراً، ويقوم المحقق بفحص لاعب، ويقوم الطبيب بحماية لاعب آخر من القتل.</li>
+                    <li><strong>🌃 طور الليل:</strong> تبدأ المافيا بالتصفية سراً، ويقوم المحقق بفحص لاعب, ويقوم الطبيب بحماية لاعب آخر من القتل.</li>
                     <li><strong>☀️ طور النهار:</strong> تستيقظ المدينة وتكتشف الضحية، ثم يبدأ نقاش علني لتبادل الشكوك.</li>
                     <li><strong>🗳️ طور التصويت:</strong> تصوّت المدينة لنفي المشتبه به الأكبر للقضاء على المافيا.</li>
                   </ul>
@@ -2485,6 +2911,24 @@ export const DiscordGameSimulator: React.FC<SimulatorProps> = ({ onWinRecorded }
                 <div className="pt-2 border-t border-slate-800 text-[11px] text-slate-400">
                   ⏱️ <strong>المؤقت الافتراضي:</strong> 30 ثانية لكل مرحلة.<br />
                   🏆 <strong>النقاط:</strong> +20 نقطة للفريق الفائز.
+                </div>
+              </div>
+            ) : gameMode === 'hide_and_seek' ? (
+              <div className="text-xs text-slate-300 space-y-3 leading-relaxed">
+                <p className="bg-blue-950/30 border border-blue-800/40 p-3 rounded-xl text-blue-200">
+                  🙈 <strong>فكرة اللعبة:</strong> لعبة غميضة جماعية ممتعة. يتم اختيار باحث واحد (Seeker) سراً، واللاعبون الباقون هم مختبئون (Hiders).
+                </p>
+                <div className="space-y-1.5">
+                  <p className="font-semibold text-slate-200">✨ الأطوار والمراحل:</p>
+                  <ul className="list-disc list-inside text-slate-400 space-y-1">
+                    <li><strong>🫣 طور الاختباء:</strong> لدى المختبئين 15 ثانية لاختيار مكان اختبائهم من بين 6 خيارات متاحة.</li>
+                    <li><strong>🔎 طور البحث:</strong> يبدأ الباحث في فحص الأماكن بحثاً عن اللاعبين بحد أقصى من المحاولات (عدد المختبئين + 2).</li>
+                    <li><strong>🏆 الفوز باللعبة:</strong> يفوز الباحث إذا عثر على جميع المختبئين، بينما يفوز المختبئون الناجون إذا لم يكتشفهم الباحث.</li>
+                  </ul>
+                </div>
+                <div className="pt-2 border-t border-slate-800 text-[11px] text-slate-400">
+                  ⏱️ <strong>مدة اللعبة كاملة:</strong> 75 ثانية (15ث اختباء، 60ث بحث).<br />
+                  🏆 <strong>النقاط المكتسبة:</strong> +10 نقاط لكل فائز بالفريق.
                 </div>
               </div>
             ) : (
