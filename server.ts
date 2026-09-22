@@ -13,6 +13,7 @@ import db from './src/database/index.js';
 import { getRandomReverseWord, ARABIC_WORDS } from './src/games/datasets/words.js';
 import { getRandomCountry, COUNTRIES } from './src/games/datasets/countries.js';
 import { getRandomHarfRound, CATEGORIES } from './src/games/datasets/categories.js';
+import { getRandomFastestPhrase } from './src/games/datasets/fastestPhrases.js';
 import { reverseArabicText, checkReverseMatch, matchesArabicAnswer, checkHarfAnswer, normalizeArabic } from './src/utils/arabicNormalizer.js';
 import { checkXOWinner, isXOBoardFull } from './src/games/xoGame.js';
 import { GAME_REGISTRY, getAllGames, getAvailableGames } from './src/games/registry.js';
@@ -327,6 +328,42 @@ async function startServer() {
       correct: false,
       clickedIndex,
       targetIndex,
+    });
+  });
+
+  // Simulator Endpoints: Test "Fastest"
+  app.post('/api/simulate/fastest/start', (req, res) => {
+    const phrase = getRandomFastestPhrase();
+    res.json({
+      phrase,
+      timerSeconds: config.games.fastest?.timerSeconds || 15,
+      points: config.games.fastest?.pointsPerWin || 10,
+    });
+  });
+
+  app.post('/api/simulate/fastest/check', (req, res) => {
+    const { answer, targetPhrase, startTime, playerName, guildId = 'demo-server' } = req.body || {};
+    if (!answer || !targetPhrase) {
+      return res.status(400).json({ error: 'Missing answer or targetPhrase' });
+    }
+
+    const trimmedUserAnswer = String(answer).trim();
+    const isCorrect = trimmedUserAnswer === targetPhrase;
+    const timeTakenSec = startTime ? (Date.now() - Number(startTime)) / 1000 : 2.14;
+
+    if (isCorrect) {
+      const points = config.games.fastest?.pointsPerWin || 10;
+      const user = db.addWin(guildId, playerName || 'مستخدم تجريبي', playerName || 'مستخدم تجريبي', 'fastest', points);
+      return res.json({
+        correct: true,
+        timeTakenSec: Number(timeTakenSec.toFixed(2)),
+        points,
+        user,
+      });
+    }
+
+    res.json({
+      correct: false,
     });
   });
 

@@ -40,7 +40,7 @@ export const GAME_REGISTRY = [
     command: '!اسرع',
     slashCommand: '/اسرع',
     type: 'solo',
-    status: 'upcoming',
+    status: 'available',
     description: 'أسرع كتابة للنص المطلوب',
   },
   {

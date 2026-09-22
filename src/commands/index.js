@@ -13,6 +13,7 @@ import helpCommand from './help.js';
 import gamesCommand from './games.js';
 import guessNumberCommand from './guessNumber.js';
 import buttonCommand from './button.js';
+import fastestCommand from './fastest.js';
 import config from '../config/index.js';
 import logger from '../utils/logger.js';
 
@@ -22,6 +23,7 @@ export const commandsList = [
   harfCommand,
   guessNumberCommand,
   buttonCommand,
+  fastestCommand,
   xoCommand,
   leaderboardCommand,
   gamesCommand,
@@ -99,7 +101,7 @@ export async function handleMessage(message) {
   } else {
     // 2. Also support direct Arabic commands without exclamation mark if enabled
     const firstWord = content.split(/\s+/)[0].toLowerCase();
-    if (['اعكس', 'اعلام', 'أعلام', 'حرف', 'الحرف', 'خمن', 'خمن_الرقم', 'رقم', 'الرقم', 'زر', 'الزر', 'button', 'نقاط', 'النقاط', 'مساعدة', 'العاب', 'ألعاب', 'الالعاب', 'الألعاب', 'games', 'guess'].includes(firstWord)) {
+    if (['اعكس', 'اعلام', 'أعلام', 'حرف', 'الحرف', 'خمن', 'خمن_الرقم', 'رقم', 'الرقم', 'زر', 'الزر', 'button', 'اسرع', 'أسرع', 'fastest', 'نقاط', 'النقاط', 'مساعدة', 'العاب', 'ألعاب', 'الالعاب', 'الألعاب', 'games', 'guess'].includes(firstWord)) {
       commandKey = firstWord;
     }
   }

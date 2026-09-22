@@ -78,6 +78,24 @@ export const embeds = {
   },
 
   /**
+   * Embed for لعبة أسرع (Fastest Typing Game)
+   */
+  fastestGame: (phrase, timerSeconds) => {
+    return new EmbedBuilder()
+      .setColor(config.colors.gameFastest || 0xF39C12)
+      .setTitle('⚡ لعبة أسرع — أسرع كتابة تفوز!')
+      .setDescription(
+        `المطلوب: قم بكتابة النص التالي **كما هو تماماً** بأسرع ما يمكن!\n\n` +
+        `📝 النص المطلوب:\n` +
+        `\`\`\`\n${phrase}\n\`\`\`\n` +
+        `⏱️ لديك **${timerSeconds}** ثانية للإجابة!\n` +
+        `💡 اكتب إجابتك في الشات مباشرة (أول إجابة مطابقة تفوز).`
+      )
+      .setFooter({ text: `بوت جعفر • لعبة أسرع • اكتب النص المطلوب في الشات` })
+      .setTimestamp();
+  },
+
+  /**
    * Embed for لعبة XO (Tic-Tac-Toe Lobby)
    */
   xoLobby: (hostUser, challengedUser = null) => {

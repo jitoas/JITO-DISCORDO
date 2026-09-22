@@ -19,7 +19,7 @@ interface SimulatorProps {
 }
 
 export const DiscordGameSimulator: React.FC<SimulatorProps> = ({ onWinRecorded }) => {
-  const [gameMode, setGameMode] = useState<'reverse' | 'flags' | 'harf' | 'guess_number' | 'button' | 'xo'>('reverse');
+  const [gameMode, setGameMode] = useState<'reverse' | 'flags' | 'harf' | 'guess_number' | 'button' | 'fastest' | 'xo'>('reverse');
   const [gameState, setGameState] = useState<'idle' | 'running' | 'won' | 'timeout'>('idle');
   
   // Game Questions
@@ -29,6 +29,7 @@ export const DiscordGameSimulator: React.FC<SimulatorProps> = ({ onWinRecorded }
   const [guessQ, setGuessQ] = useState<{ secretNumber: number; timerSeconds: number; points: number } | null>(null);
   const [guessAttemptsCount, setGuessAttemptsCount] = useState<number>(0);
   const [buttonQ, setButtonQ] = useState<{ targetIndex: number; timerSeconds: number; points: number; startTime: number } | null>(null);
+  const [fastestQ, setFastestQ] = useState<{ phrase: string; timerSeconds: number; points: number; startTime: number } | null>(null);
 
   // XO State
   const [xoBoard, setXOBoard] = useState<Array<string | null>>(Array(9).fill(null));
@@ -319,6 +320,44 @@ export const DiscordGameSimulator: React.FC<SimulatorProps> = ({ onWinRecorded }
     }
   };
 
+  // Start a new Fastest Game Round
+  const startFastestRound = async () => {
+    try {
+      clearActiveTimer();
+      isRoundEndedRef.current = false;
+      setGameState('idle');
+      setUserInput('');
+      setLockedPlayers([]);
+      setFeedback(null);
+
+      const res = await fetch('/api/simulate/fastest/start');
+      const data = await res.json();
+
+      const startTime = Date.now();
+      setFastestQ({ ...data, startTime });
+      const timerSec = data.timerSeconds || 15;
+      setInitialTime(timerSec);
+      setTimeLeft(timerSec);
+      setGameState('running');
+
+      const now = new Date().toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' });
+      setChatLog((prev) => [
+        ...prev,
+        {
+          sender: 'bot',
+          embed: {
+            title: '⚡ لعبة أسرع — أسرع كتابة تفوز!',
+            description: `المطلوب: قم بكتابة النص التالي **كما هو تماماً** بأسرع ما يمكن!\n\n📝 النص المطلوب:\n\`\`\`\n${data.phrase}\n\`\`\`\n⏱️ لديك **${timerSec}** ثانية للإجابة!\n💡 اكتب إجابتك في الشات مباشرة (أول إجابة مطابقة تفوز).`,
+            color: 'border-amber-500 bg-amber-950/20 text-amber-200',
+          },
+          time: now,
+        },
+      ]);
+    } catch (err) {
+      console.error('Error starting fastest round:', err);
+    }
+  };
+
   // Simulator Button Click Handler
   const handleSimButtonClick = async (clickedIndex: number) => {
     if (gameState !== 'running' || isRoundEndedRef.current || !buttonQ) return;
@@ -403,6 +442,8 @@ export const DiscordGameSimulator: React.FC<SimulatorProps> = ({ onWinRecorded }
       startGuessNumberRound();
     } else if (gameMode === 'button') {
       startButtonRound();
+    } else if (gameMode === 'fastest') {
+      startFastestRound();
     } else {
       startXORound();
     }
@@ -566,6 +607,9 @@ export const DiscordGameSimulator: React.FC<SimulatorProps> = ({ onWinRecorded }
     } else if (gameMode === 'harf' && harfQ) {
       correctText = harfQ.sampleValidAnswers?.join(' أو ') || `كلمة تبدأ بحرف ${harfQ.letter}`;
       gameTitle = 'لعبة حرف 🔤';
+    } else if (gameMode === 'fastest' && fastestQ) {
+      correctText = fastestQ.phrase;
+      gameTitle = 'لعبة أسرع ⚡';
     }
 
     setFeedback({
@@ -860,6 +904,56 @@ export const DiscordGameSimulator: React.FC<SimulatorProps> = ({ onWinRecorded }
       } catch (err) {
         console.error(err);
       }
+    } else if (gameMode === 'fastest' && fastestQ) {
+      try {
+        const res = await fetch('/api/simulate/fastest/check', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            answer: trimmed,
+            targetPhrase: fastestQ.phrase,
+            startTime: fastestQ.startTime,
+            playerName,
+          }),
+        });
+        const result = await res.json();
+
+        if (result.correct) {
+          if (isRoundEndedRef.current) return;
+          isRoundEndedRef.current = true;
+          clearActiveTimer();
+
+          setGameState('won');
+          setSessionPoints((p) => p + result.points);
+          setSessionWins((w) => w + 1);
+          setStreak((s) => s + 1);
+          setFeedback({
+            isCorrect: true,
+            text: `👑 فاز باللعبة! (+${result.points} نقطة)`,
+            details: `السرعة: ${result.timeTakenSec} ثانية`,
+          });
+
+          setChatLog((prev) => [
+            ...prev,
+            {
+              sender: 'bot',
+              text: `🏆 **فاز باللعبة! 👑** @${playerName}`,
+              time: now,
+            },
+          ]);
+
+          if (onWinRecorded) onWinRecorded();
+        } else {
+          setUserInput('');
+          setFeedback({
+            isCorrect: false,
+            text: '❌ النص غير مطابق تماماً! حاول مرة أخرى...',
+            details: `أنت كتبت "${trimmed}". المطلوب مطابقة النص المعروض تماماً قبل انتهاء الوقت!`,
+          });
+        }
+      } catch (err) {
+        console.error(err);
+      }
     }
   };
 
@@ -1025,6 +1119,35 @@ export const DiscordGameSimulator: React.FC<SimulatorProps> = ({ onWinRecorded }
               gameMode === 'guess_number' ? 'border-rose-400 bg-rose-500' : 'border-slate-600'
             }`}>
               {gameMode === 'guess_number' && <div className="w-1 h-1 bg-white rounded-full" />}
+            </div>
+          </button>
+
+          <button
+            id="sim-mode-fastest-btn"
+            onClick={() => {
+              setGameMode('fastest');
+              setGameState('idle');
+              setFeedback(null);
+            }}
+            className={`p-3.5 rounded-xl border text-right transition-all flex items-center justify-between ${
+              gameMode === 'fastest'
+                ? 'bg-amber-950/40 border-amber-500 text-white shadow-lg shadow-amber-900/20 ring-1 ring-amber-500'
+                : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-700'
+            }`}
+          >
+            <div>
+              <div className="flex items-center gap-1.5 mb-1">
+                <span className="text-lg">⚡</span>
+                <span className="font-bold text-sm text-white">أسرع</span>
+              </div>
+              <p className="text-[11px] text-slate-400">
+                <code className="text-amber-400 font-mono">!اسرع</code>
+              </p>
+            </div>
+            <div className={`w-3.5 h-3.5 rounded-full border-2 flex items-center justify-center ${
+              gameMode === 'fastest' ? 'border-amber-400 bg-amber-500' : 'border-slate-600'
+            }`}>
+              {gameMode === 'fastest' && <div className="w-1 h-1 bg-white rounded-full" />}
             </div>
           </button>
 
@@ -1386,6 +1509,8 @@ export const DiscordGameSimulator: React.FC<SimulatorProps> = ({ onWinRecorded }
                         ? `اكتب معكوس الكلمة هنا (مثلاً: ${reverseQ ? reverseQ.reversed : 'ةكلمم'})...`
                         : gameMode === 'flags'
                         ? `اكتب اسم الدولة هنا (مثلاً: ${flagQ ? flagQ.name : 'السعودية'})...`
+                        : gameMode === 'fastest'
+                        ? `اكتب النص المطلوب تماماً هنا...`
                         : `اكتب ${harfQ?.category || 'كلمة'} تبدأ بحرف (${harfQ?.letter || 'أ'})...`
                       : 'اضغط على "بدء جولة جديدة" لبدء اللعبة...'
                   }
@@ -1435,7 +1560,7 @@ export const DiscordGameSimulator: React.FC<SimulatorProps> = ({ onWinRecorded }
           <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl">
             <h3 className="text-base font-bold text-white flex items-center gap-2 mb-3">
               <HelpCircle className="w-4 h-4 text-indigo-400" />
-              قواعد لعبة {gameMode === 'reverse' ? 'اعكس (Reverse)' : gameMode === 'flags' ? 'أعلام (Flags)' : gameMode === 'harf' ? 'حرف (Letter)' : gameMode === 'button' ? 'زر (Button)' : 'XO (Tic-Tac-Toe)'}
+              قواعد لعبة {gameMode === 'reverse' ? 'اعكس (Reverse)' : gameMode === 'flags' ? 'أعلام (Flags)' : gameMode === 'harf' ? 'حرف (Letter)' : gameMode === 'button' ? 'زر (Button)' : gameMode === 'fastest' ? 'أسرع (Fastest)' : 'XO (Tic-Tac-Toe)'}
             </h3>
 
             {gameMode === 'reverse' ? (
@@ -1514,6 +1639,24 @@ export const DiscordGameSimulator: React.FC<SimulatorProps> = ({ onWinRecorded }
                   🏆 <strong>النقاط:</strong> +10 نقاط عند الفوز.
                 </div>
               </div>
+            ) : gameMode === 'fastest' ? (
+              <div className="text-xs text-slate-300 space-y-3 leading-relaxed">
+                <p className="bg-amber-950/30 border border-amber-800/40 p-3 rounded-xl text-amber-200">
+                  ⚡ <strong>فكرة اللعبة:</strong> يرسل البوت نصاً أو جملة عربية، والمطلوب كتابتها بسرعة ودقة متناهية كما هي تماماً!
+                </p>
+                <div className="space-y-1.5">
+                  <p className="font-semibold text-slate-200">✨ التسامح والمحاولات:</p>
+                  <ul className="list-disc list-inside text-slate-400 space-y-1">
+                    <li><strong>لعبة جماعية:</strong> جميع لاعبي القناة يشاركون في نفس الوقت.</li>
+                    <li><strong>أول إجابة صحيحة:</strong> من يكتب النص كاملاً بشكل مطابق أولاً يفوز بالجولة.</li>
+                    <li><strong>تجاهل الأخطاء:</strong> الإجابة الخاطئة تُجاهَل ولا تنهي الجولة ويمكن الإعادة حتى انتهاء الوقت.</li>
+                  </ul>
+                </div>
+                <div className="pt-2 border-t border-slate-800 text-[11px] text-slate-400">
+                  ⏱️ <strong>المؤقت الافتراضي:</strong> 15 ثانية.<br />
+                  🏆 <strong>النقاط:</strong> +10 نقاط عند الفوز.
+                </div>
+              </div>
             ) : (
               <div className="text-xs text-slate-300 space-y-3 leading-relaxed">
                 <p className="bg-amber-950/30 border border-amber-800/40 p-3 rounded-xl text-amber-200">
@@ -1563,6 +1706,10 @@ export const DiscordGameSimulator: React.FC<SimulatorProps> = ({ onWinRecorded }
               <div className="bg-slate-950 p-2.5 rounded-lg border border-slate-800 flex items-center justify-between">
                 <span className="text-emerald-400 font-bold">/حرف</span>
                 <span className="text-slate-400 text-[11px] font-sans">أو !حرف</span>
+              </div>
+              <div className="bg-slate-950 p-2.5 rounded-lg border border-slate-800 flex items-center justify-between">
+                <span className="text-amber-400 font-bold">/اسرع</span>
+                <span className="text-slate-400 text-[11px] font-sans">أو !اسرع</span>
               </div>
               <div className="bg-slate-950 p-2.5 rounded-lg border border-slate-800 flex items-center justify-between">
                 <span className="text-amber-400 font-bold">/xo</span>

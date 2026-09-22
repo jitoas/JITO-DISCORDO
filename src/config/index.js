@@ -35,10 +35,19 @@ export const config = {
     gameXO: 0xE67E22,      // Warm Orange for XO game
     gameHarf: 0x2ECC71,    // Emerald Green for Harf game
     gameGuessNumber: 0xE74C3C, // Crimson Red for Guess Number game
+    gameFastest: 0xF39C12,     // Amber Gold for Fastest game
   },
 
   // Game Settings (Centralized for future dashboard control)
   games: {
+    // لعبة أسرع (Fastest text typing game)
+    fastest: {
+      name: 'أسرع',
+      id: 'fastest',
+      description: 'أسرع كتابة للنص المطلوب!',
+      timerSeconds: 15,
+      pointsPerWin: 10,
+    },
     // لعبة اعكس (Reverse text game)
     reverse: {
       name: 'اعكس',
