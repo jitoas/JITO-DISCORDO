@@ -134,6 +134,8 @@ class DatabaseManager {
             guess_number_wins INTEGER DEFAULT 0,
             button_wins INTEGER DEFAULT 0,
             fastest_wins INTEGER DEFAULT 0,
+            disassemble_wins INTEGER DEFAULT 0,
+            correct_wins INTEGER DEFAULT 0,
             xo_wins INTEGER DEFAULT 0,
             first_seen TIMESTAMPTZ DEFAULT NOW(),
             last_won TIMESTAMPTZ DEFAULT NOW(),
@@ -147,6 +149,8 @@ class DatabaseManager {
           ALTER TABLE jafar_scores ADD COLUMN IF NOT EXISTS guess_number_wins INTEGER DEFAULT 0;
           ALTER TABLE jafar_scores ADD COLUMN IF NOT EXISTS button_wins INTEGER DEFAULT 0;
           ALTER TABLE jafar_scores ADD COLUMN IF NOT EXISTS fastest_wins INTEGER DEFAULT 0;
+          ALTER TABLE jafar_scores ADD COLUMN IF NOT EXISTS disassemble_wins INTEGER DEFAULT 0;
+          ALTER TABLE jafar_scores ADD COLUMN IF NOT EXISTS correct_wins INTEGER DEFAULT 0;
           ALTER TABLE jafar_scores ADD COLUMN IF NOT EXISTS xo_wins INTEGER DEFAULT 0;
 
           CREATE INDEX IF NOT EXISTS idx_jafar_scores_guild_pts 
@@ -288,6 +292,8 @@ class DatabaseManager {
             guess_number: Number(row.guess_number_wins || 0),
             button: Number(row.button_wins || 0),
             fastest: Number(row.fastest_wins || 0),
+            disassemble: Number(row.disassemble_wins || 0),
+            correct: Number(row.correct_wins || 0),
             xo: Number(row.xo_wins || 0),
           },
           firstSeen: row.first_seen ? new Date(row.first_seen).toISOString() : new Date().toISOString(),
@@ -328,6 +334,8 @@ class DatabaseManager {
           guess_number: 0,
           button: 0,
           fastest: 0,
+          disassemble: 0,
+          correct: 0,
           xo: 0,
         },
         firstSeen: new Date().toISOString(),
@@ -344,7 +352,7 @@ class DatabaseManager {
    * @param {string} guildId 
    * @param {string} userId 
    * @param {string} username 
-   * @param {'reverse' | 'flags' | 'harf' | 'guess_number' | 'button' | 'fastest' | 'xo'} gameType 
+   * @param {'reverse' | 'flags' | 'harf' | 'guess_number' | 'button' | 'fastest' | 'disassemble' | 'correct' | 'xo'} gameType 
    * @param {number} points 
    * @returns {object} Updated user stats
    */
@@ -375,15 +383,17 @@ class DatabaseManager {
       const guessNumberWin = gameType === 'guess_number' ? 1 : 0;
       const buttonWin = gameType === 'button' ? 1 : 0;
       const fastestWin = gameType === 'fastest' ? 1 : 0;
+      const disassembleWin = gameType === 'disassemble' ? 1 : 0;
+      const correctWin = gameType === 'correct' ? 1 : 0;
       const xoWin = gameType === 'xo' ? 1 : 0;
 
       this.pool.query(`
         INSERT INTO jafar_scores (
           guild_id, user_id, username, points, total_wins,
-          reverse_wins, flags_wins, harf_wins, guess_number_wins, button_wins, fastest_wins, xo_wins,
+          reverse_wins, flags_wins, harf_wins, guess_number_wins, button_wins, fastest_wins, disassemble_wins, correct_wins, xo_wins,
           first_seen, last_won, updated_at
         )
-        VALUES ($1, $2, $3, $4, 1, $5, $6, $7, $8, $9, $10, $11, NOW(), NOW(), NOW())
+        VALUES ($1, $2, $3, $4, 1, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW(), NOW(), NOW())
         ON CONFLICT (guild_id, user_id) DO UPDATE SET
           username = EXCLUDED.username,
           points = jafar_scores.points + EXCLUDED.points,
@@ -394,6 +404,8 @@ class DatabaseManager {
           guess_number_wins = COALESCE(jafar_scores.guess_number_wins, 0) + EXCLUDED.guess_number_wins,
           button_wins = COALESCE(jafar_scores.button_wins, 0) + EXCLUDED.button_wins,
           fastest_wins = COALESCE(jafar_scores.fastest_wins, 0) + EXCLUDED.fastest_wins,
+          disassemble_wins = COALESCE(jafar_scores.disassemble_wins, 0) + EXCLUDED.disassemble_wins,
+          correct_wins = COALESCE(jafar_scores.correct_wins, 0) + EXCLUDED.correct_wins,
           xo_wins = COALESCE(jafar_scores.xo_wins, 0) + EXCLUDED.xo_wins,
           last_won = NOW(),
           updated_at = NOW()
@@ -409,6 +421,8 @@ class DatabaseManager {
         guessNumberWin,
         buttonWin,
         fastestWin,
+        disassembleWin,
+        correctWin,
         xoWin
       ]).catch((err) => {
         logger.warn(

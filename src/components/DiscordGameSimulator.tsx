@@ -19,7 +19,7 @@ interface SimulatorProps {
 }
 
 export const DiscordGameSimulator: React.FC<SimulatorProps> = ({ onWinRecorded }) => {
-  const [gameMode, setGameMode] = useState<'reverse' | 'flags' | 'harf' | 'guess_number' | 'button' | 'fastest' | 'xo'>('reverse');
+  const [gameMode, setGameMode] = useState<'reverse' | 'flags' | 'harf' | 'guess_number' | 'button' | 'fastest' | 'disassemble' | 'xo'>('reverse');
   const [gameState, setGameState] = useState<'idle' | 'running' | 'won' | 'timeout'>('idle');
   
   // Game Questions
@@ -30,6 +30,7 @@ export const DiscordGameSimulator: React.FC<SimulatorProps> = ({ onWinRecorded }
   const [guessAttemptsCount, setGuessAttemptsCount] = useState<number>(0);
   const [buttonQ, setButtonQ] = useState<{ targetIndex: number; timerSeconds: number; points: number; startTime: number } | null>(null);
   const [fastestQ, setFastestQ] = useState<{ phrase: string; timerSeconds: number; points: number; startTime: number } | null>(null);
+  const [disassembleQ, setDisassembleQ] = useState<{ word: string; expectedAnswer: string; timerSeconds: number; points: number; startTime: number } | null>(null);
 
   // XO State
   const [xoBoard, setXOBoard] = useState<Array<string | null>>(Array(9).fill(null));
@@ -430,6 +431,44 @@ export const DiscordGameSimulator: React.FC<SimulatorProps> = ({ onWinRecorded }
     }
   };
 
+  // Start a new Disassemble Game Round
+  const startDisassembleRound = async () => {
+    try {
+      clearActiveTimer();
+      isRoundEndedRef.current = false;
+      setGameState('idle');
+      setUserInput('');
+      setLockedPlayers([]);
+      setFeedback(null);
+
+      const res = await fetch('/api/simulate/disassemble/start', { method: 'POST' });
+      const data = await res.json();
+
+      const startTime = Date.now();
+      setDisassembleQ({ ...data, startTime });
+      const timerSec = data.timerSeconds || 15;
+      setInitialTime(timerSec);
+      setTimeLeft(timerSec);
+      setGameState('running');
+
+      const now = new Date().toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' });
+      setChatLog((prev) => [
+        ...prev,
+        {
+          sender: 'bot',
+          embed: {
+            title: '🔄 لعبة فكك — أسرع إجابة تفوز!',
+            description: `المطلوب: قم بتفكيك الكلمة التالية إلى **حروف مفصولة بمسافات**!\n\n🔤 الكلمة المطلوب تفكيكها:\n\`\`\`\n${data.word}\n\`\`\`\n💡 مثال توضيحي: إذا كانت الكلمة \`مكتبة\` فالإجابة الصحيحة هي: \`م ك ت ب ة\`\n\n⏱️ لديك **${timerSec}** ثانية للإجابة!\n💡 اكتب الحروف مفصولة بمسافات في الشات مباشرة.`,
+            color: 'border-teal-500 bg-teal-950/20 text-teal-200',
+          },
+          time: now,
+        },
+      ]);
+    } catch (err) {
+      console.error('Error starting disassemble round:', err);
+    }
+  };
+
   // Start whichever game is selected
   const startCurrentGame = () => {
     if (gameMode === 'reverse') {
@@ -444,6 +483,8 @@ export const DiscordGameSimulator: React.FC<SimulatorProps> = ({ onWinRecorded }
       startButtonRound();
     } else if (gameMode === 'fastest') {
       startFastestRound();
+    } else if (gameMode === 'disassemble') {
+      startDisassembleRound();
     } else {
       startXORound();
     }
@@ -610,6 +651,9 @@ export const DiscordGameSimulator: React.FC<SimulatorProps> = ({ onWinRecorded }
     } else if (gameMode === 'fastest' && fastestQ) {
       correctText = fastestQ.phrase;
       gameTitle = 'لعبة أسرع ⚡';
+    } else if (gameMode === 'disassemble' && disassembleQ) {
+      correctText = `${disassembleQ.word} ← (${disassembleQ.expectedAnswer})`;
+      gameTitle = 'لعبة فكك 🔄';
     }
 
     setFeedback({
@@ -954,6 +998,57 @@ export const DiscordGameSimulator: React.FC<SimulatorProps> = ({ onWinRecorded }
       } catch (err) {
         console.error(err);
       }
+    } else if (gameMode === 'disassemble' && disassembleQ) {
+      try {
+        const res = await fetch('/api/simulate/disassemble/check', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            answer: trimmed,
+            targetWord: disassembleQ.word,
+            expectedAnswer: disassembleQ.expectedAnswer,
+            startTime: disassembleQ.startTime,
+            playerName,
+          }),
+        });
+        const result = await res.json();
+
+        if (result.correct) {
+          if (isRoundEndedRef.current) return;
+          isRoundEndedRef.current = true;
+          clearActiveTimer();
+
+          setGameState('won');
+          setSessionPoints((p) => p + result.points);
+          setSessionWins((w) => w + 1);
+          setStreak((s) => s + 1);
+          setFeedback({
+            isCorrect: true,
+            text: `👑 فاز باللعبة! (+${result.points} نقطة)`,
+            details: `التفكيك الصحيح: ${result.expectedAnswer}`,
+          });
+
+          setChatLog((prev) => [
+            ...prev,
+            {
+              sender: 'bot',
+              text: `🏆 **فاز باللعبة! 👑** @${playerName}`,
+              time: now,
+            },
+          ]);
+
+          if (onWinRecorded) onWinRecorded();
+        } else {
+          setUserInput('');
+          setFeedback({
+            isCorrect: false,
+            text: '❌ التفكيك غير صحيح! أعد المحاولة بالحروف مرتبة ومفصولة بمسافات...',
+            details: `أنت كتبت "${trimmed}". أرسل الحروف مفصولة بمسافات مثل: (${disassembleQ.expectedAnswer})`,
+          });
+        }
+      } catch (err) {
+        console.error(err);
+      }
     }
   };
 
@@ -1005,7 +1100,7 @@ export const DiscordGameSimulator: React.FC<SimulatorProps> = ({ onWinRecorded }
         </div>
 
         {/* Game Mode Switcher Buttons */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mt-6 pt-6 border-t border-slate-800">
+        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3 mt-6 pt-6 border-t border-slate-800">
           <button
             id="sim-mode-reverse-btn"
             onClick={() => {
@@ -1013,7 +1108,7 @@ export const DiscordGameSimulator: React.FC<SimulatorProps> = ({ onWinRecorded }
               setGameState('idle');
               setFeedback(null);
             }}
-            className={`p-3.5 rounded-xl border text-right transition-all flex items-center justify-between ${
+            className={`p-3 rounded-xl border text-right transition-all flex items-center justify-between ${
               gameMode === 'reverse'
                 ? 'bg-purple-950/40 border-purple-500 text-white shadow-lg shadow-purple-900/20 ring-1 ring-purple-500'
                 : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-700'
@@ -1042,7 +1137,7 @@ export const DiscordGameSimulator: React.FC<SimulatorProps> = ({ onWinRecorded }
               setGameState('idle');
               setFeedback(null);
             }}
-            className={`p-3.5 rounded-xl border text-right transition-all flex items-center justify-between ${
+            className={`p-3 rounded-xl border text-right transition-all flex items-center justify-between ${
               gameMode === 'flags'
                 ? 'bg-sky-950/40 border-sky-500 text-white shadow-lg shadow-sky-900/20 ring-1 ring-sky-500'
                 : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-700'
@@ -1071,7 +1166,7 @@ export const DiscordGameSimulator: React.FC<SimulatorProps> = ({ onWinRecorded }
               setGameState('idle');
               setFeedback(null);
             }}
-            className={`p-3.5 rounded-xl border text-right transition-all flex items-center justify-between ${
+            className={`p-3 rounded-xl border text-right transition-all flex items-center justify-between ${
               gameMode === 'harf'
                 ? 'bg-emerald-950/40 border-emerald-500 text-white shadow-lg shadow-emerald-900/20 ring-1 ring-emerald-500'
                 : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-700'
@@ -1100,7 +1195,7 @@ export const DiscordGameSimulator: React.FC<SimulatorProps> = ({ onWinRecorded }
               setGameState('idle');
               setFeedback(null);
             }}
-            className={`p-3.5 rounded-xl border text-right transition-all flex items-center justify-between ${
+            className={`p-3 rounded-xl border text-right transition-all flex items-center justify-between ${
               gameMode === 'guess_number'
                 ? 'bg-rose-950/40 border-rose-500 text-white shadow-lg shadow-rose-900/20 ring-1 ring-rose-500'
                 : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-700'
@@ -1129,7 +1224,7 @@ export const DiscordGameSimulator: React.FC<SimulatorProps> = ({ onWinRecorded }
               setGameState('idle');
               setFeedback(null);
             }}
-            className={`p-3.5 rounded-xl border text-right transition-all flex items-center justify-between ${
+            className={`p-3 rounded-xl border text-right transition-all flex items-center justify-between ${
               gameMode === 'fastest'
                 ? 'bg-amber-950/40 border-amber-500 text-white shadow-lg shadow-amber-900/20 ring-1 ring-amber-500'
                 : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-700'
@@ -1152,13 +1247,42 @@ export const DiscordGameSimulator: React.FC<SimulatorProps> = ({ onWinRecorded }
           </button>
 
           <button
+            id="sim-mode-disassemble-btn"
+            onClick={() => {
+              setGameMode('disassemble');
+              setGameState('idle');
+              setFeedback(null);
+            }}
+            className={`p-3 rounded-xl border text-right transition-all flex items-center justify-between ${
+              gameMode === 'disassemble'
+                ? 'bg-teal-950/40 border-teal-500 text-white shadow-lg shadow-teal-900/20 ring-1 ring-teal-500'
+                : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-700'
+            }`}
+          >
+            <div>
+              <div className="flex items-center gap-1.5 mb-1">
+                <span className="text-lg">🔄</span>
+                <span className="font-bold text-sm text-white">فكك</span>
+              </div>
+              <p className="text-[11px] text-slate-400">
+                <code className="text-teal-400 font-mono">!فكك</code>
+              </p>
+            </div>
+            <div className={`w-3.5 h-3.5 rounded-full border-2 flex items-center justify-center ${
+              gameMode === 'disassemble' ? 'border-teal-400 bg-teal-500' : 'border-slate-600'
+            }`}>
+              {gameMode === 'disassemble' && <div className="w-1 h-1 bg-white rounded-full" />}
+            </div>
+          </button>
+
+          <button
             id="sim-mode-button-btn"
             onClick={() => {
               setGameMode('button');
               setGameState('idle');
               setFeedback(null);
             }}
-            className={`p-3.5 rounded-xl border text-right transition-all flex items-center justify-between ${
+            className={`p-3 rounded-xl border text-right transition-all flex items-center justify-between ${
               gameMode === 'button'
                 ? 'bg-blue-950/40 border-blue-500 text-white shadow-lg shadow-blue-900/20 ring-1 ring-blue-500'
                 : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-700'
@@ -1187,25 +1311,25 @@ export const DiscordGameSimulator: React.FC<SimulatorProps> = ({ onWinRecorded }
               setGameState('idle');
               setFeedback(null);
             }}
-            className={`p-4 rounded-xl border text-right transition-all flex items-center justify-between ${
+            className={`p-3 rounded-xl border text-right transition-all flex items-center justify-between ${
               gameMode === 'xo'
                 ? 'bg-amber-950/40 border-amber-500 text-white shadow-lg shadow-amber-900/20 ring-1 ring-amber-500'
                 : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-700'
             }`}
           >
             <div>
-              <div className="flex items-center gap-2 mb-1">
-                <span className="text-xl">❌⭕</span>
-                <span className="font-bold text-base text-white">لعبة XO</span>
+              <div className="flex items-center gap-1.5 mb-1">
+                <span className="text-lg">❌⭕</span>
+                <span className="font-bold text-sm text-white">XO</span>
               </div>
-              <p className="text-xs text-slate-400">
-                <code className="text-amber-400 font-mono">/xo</code> • <code className="text-amber-400 font-mono">!xo</code>
+              <p className="text-[11px] text-slate-400">
+                <code className="text-amber-400 font-mono">!xo</code>
               </p>
             </div>
-            <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${
+            <div className={`w-3.5 h-3.5 rounded-full border-2 flex items-center justify-center ${
               gameMode === 'xo' ? 'border-amber-400 bg-amber-500' : 'border-slate-600'
             }`}>
-              {gameMode === 'xo' && <div className="w-1.5 h-1.5 bg-white rounded-full" />}
+              {gameMode === 'xo' && <div className="w-1 h-1 bg-white rounded-full" />}
             </div>
           </button>
         </div>
@@ -1225,7 +1349,7 @@ export const DiscordGameSimulator: React.FC<SimulatorProps> = ({ onWinRecorded }
                 <h3 className="text-white font-bold text-sm flex items-center gap-2">
                   <span>فعاليات-وألعاب</span>
                   <span className="text-[11px] bg-slate-800 text-slate-300 px-2 py-0.5 rounded-full font-normal">
-                    {gameMode === 'reverse' ? 'لعبة اعكس' : gameMode === 'flags' ? 'لعبة أعلام' : gameMode === 'harf' ? 'لعبة حرف' : 'لعبة XO'}
+                    {gameMode === 'reverse' ? 'لعبة اعكس' : gameMode === 'flags' ? 'لعبة أعلام' : gameMode === 'harf' ? 'لعبة حرف' : gameMode === 'disassemble' ? 'لعبة فكك' : gameMode === 'fastest' ? 'لعبة أسرع' : gameMode === 'button' ? 'لعبة زر' : 'لعبة XO'}
                   </span>
                 </h3>
                 <p className="text-[11px] text-slate-400">
@@ -1560,7 +1684,7 @@ export const DiscordGameSimulator: React.FC<SimulatorProps> = ({ onWinRecorded }
           <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl">
             <h3 className="text-base font-bold text-white flex items-center gap-2 mb-3">
               <HelpCircle className="w-4 h-4 text-indigo-400" />
-              قواعد لعبة {gameMode === 'reverse' ? 'اعكس (Reverse)' : gameMode === 'flags' ? 'أعلام (Flags)' : gameMode === 'harf' ? 'حرف (Letter)' : gameMode === 'button' ? 'زر (Button)' : gameMode === 'fastest' ? 'أسرع (Fastest)' : 'XO (Tic-Tac-Toe)'}
+              قواعد لعبة {gameMode === 'reverse' ? 'اعكس (Reverse)' : gameMode === 'flags' ? 'أعلام (Flags)' : gameMode === 'harf' ? 'حرف (Letter)' : gameMode === 'disassemble' ? 'فكك (Disassemble)' : gameMode === 'button' ? 'زر (Button)' : gameMode === 'fastest' ? 'أسرع (Fastest)' : 'XO (Tic-Tac-Toe)'}
             </h3>
 
             {gameMode === 'reverse' ? (
@@ -1657,6 +1781,25 @@ export const DiscordGameSimulator: React.FC<SimulatorProps> = ({ onWinRecorded }
                   🏆 <strong>النقاط:</strong> +10 نقاط عند الفوز.
                 </div>
               </div>
+            ) : gameMode === 'disassemble' ? (
+              <div className="text-xs text-slate-300 space-y-3 leading-relaxed">
+                <p className="bg-teal-950/30 border border-teal-800/40 p-3 rounded-xl text-teal-200">
+                  🔄 <strong>فكرة اللعبة:</strong> يرسل البوت كلمة عربية، وعلى اللاعبين تفكيكها إلى حروف منفصلة ومتباعدة بمسافات.
+                </p>
+                <div className="space-y-1.5">
+                  <p className="font-semibold text-slate-200">✨ طريقة التفكيك والأمثلة:</p>
+                  <ul className="list-disc list-inside text-slate-400 space-y-1">
+                    <li>الكلمة: <strong>"مدرسة"</strong> ← الإجابة: <strong>"م د ر س ة"</strong></li>
+                    <li>الكلمة: <strong>"برمجة"</strong> ← الإجابة: <strong>"ب ر م ج ة"</strong></li>
+                    <li><strong>أسرع إجابة تفوز:</strong> أول لاعب يُرسل الحروف مفككة بمسافات صحيحة يحصل على النقاط.</li>
+                    <li>تُتجاهل التشكيلات والمسافات الزائدة في البداية والنهاية.</li>
+                  </ul>
+                </div>
+                <div className="pt-2 border-t border-slate-800 text-[11px] text-slate-400">
+                  ⏱️ <strong>المؤقت الافتراضي:</strong> 15 ثانية.<br />
+                  🏆 <strong>النقاط:</strong> +10 نقاط عند الفوز.
+                </div>
+              </div>
             ) : (
               <div className="text-xs text-slate-300 space-y-3 leading-relaxed">
                 <p className="bg-amber-950/30 border border-amber-800/40 p-3 rounded-xl text-amber-200">
@@ -1710,6 +1853,10 @@ export const DiscordGameSimulator: React.FC<SimulatorProps> = ({ onWinRecorded }
               <div className="bg-slate-950 p-2.5 rounded-lg border border-slate-800 flex items-center justify-between">
                 <span className="text-amber-400 font-bold">/اسرع</span>
                 <span className="text-slate-400 text-[11px] font-sans">أو !اسرع</span>
+              </div>
+              <div className="bg-slate-950 p-2.5 rounded-lg border border-slate-800 flex items-center justify-between">
+                <span className="text-teal-400 font-bold">/فكك</span>
+                <span className="text-slate-400 text-[11px] font-sans">أو !فكك</span>
               </div>
               <div className="bg-slate-950 p-2.5 rounded-lg border border-slate-800 flex items-center justify-between">
                 <span className="text-amber-400 font-bold">/xo</span>

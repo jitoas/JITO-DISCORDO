@@ -36,6 +36,8 @@ export const config = {
     gameHarf: 0x2ECC71,    // Emerald Green for Harf game
     gameGuessNumber: 0xE74C3C, // Crimson Red for Guess Number game
     gameFastest: 0xF39C12,     // Amber Gold for Fastest game
+    gameDisassemble: 0x16A085, // Teal / Cyan for Disassemble game
+    gameCorrect: 0xD35400,     // Dark Orange for Correct game
   },
 
   // Game Settings (Centralized for future dashboard control)
@@ -102,6 +104,22 @@ export const config = {
       id: 'button',
       description: 'الضغط السريع على الزر الصحيح بأسرع وقت!',
       timerSeconds: 10,
+      pointsPerWin: 10,
+    },
+    // لعبة فكك (Disassemble word game)
+    disassemble: {
+      name: 'فكك',
+      id: 'disassemble',
+      description: 'فكك الكلمة المعطاة إلى حروف مفصولة بمسافات!',
+      timerSeconds: 15,
+      pointsPerWin: 10,
+    },
+    // لعبة صحح (Correct spelling error game)
+    correct: {
+      name: 'صحح',
+      id: 'correct',
+      description: 'تصحيح الخطأ الإملائي في الجملة المعطاة!',
+      timerSeconds: 15,
       pointsPerWin: 10,
     },
   },

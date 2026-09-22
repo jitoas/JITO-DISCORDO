@@ -96,6 +96,43 @@ export const embeds = {
   },
 
   /**
+   * Embed for لعبة فكك (Disassemble Word Game)
+   */
+  disassembleGame: (word, timerSeconds) => {
+    return new EmbedBuilder()
+      .setColor(config.colors.gameDisassemble || 0x16A085)
+      .setTitle('🔄 لعبة فكك — أسرع إجابة تفوز!')
+      .setDescription(
+        `المطلوب: قم بتفكيك الكلمة التالية إلى **حروف مفصولة بمسافات**!\n\n` +
+        `🔤 الكلمة المطلوب تفكيكها:\n` +
+        `\`\`\`\n${word}\n\`\`\`\n` +
+        `💡 مثال توضيحي: إذا كانت الكلمة \`مكتبة\` فالإجابة الصحيحة هي: \`م ك ت ب ة\`\n\n` +
+        `⏱️ لديك **${timerSeconds}** ثانية للإجابة!\n` +
+        `💡 اكتب الحروف مفصولة بمسافات في الشات مباشرة.`
+      )
+      .setFooter({ text: `بوت جعفر • لعبة فكك • تفكيك الحروف` })
+      .setTimestamp();
+  },
+
+  /**
+   * Embed for لعبة صحح (Correct Spelling Game)
+   */
+  correctGame: (incorrectSentence, timerSeconds) => {
+    return new EmbedBuilder()
+      .setColor(config.colors.gameCorrect || 0xD35400)
+      .setTitle('✏️ لعبة صحح — أسرع إجابة تفوز!')
+      .setDescription(
+        `المطلوب: قم بتصحيح الخطأ الإملائي في الجملة التالية وأعد كتابتها بالشكل الصحيح!\n\n` +
+        `📝 الجملة الخاطئة:\n` +
+        `\`\`\`\n${incorrectSentence}\n\`\`\`\n` +
+        `⏱️ لديك **${timerSeconds}** ثانية للإجابة!\n` +
+        `💡 اكتب الجملة الصحيحة كاملاً في الشات مباشرة.`
+      )
+      .setFooter({ text: `بوت جعفر • لعبة صحح • تصحيح الأخطاء الإملائية` })
+      .setTimestamp();
+  },
+
+  /**
    * Embed for لعبة XO (Tic-Tac-Toe Lobby)
    */
   xoLobby: (hostUser, challengedUser = null) => {

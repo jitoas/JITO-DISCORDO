@@ -50,7 +50,7 @@ export const GAME_REGISTRY = [
     command: '!فكك',
     slashCommand: '/فكك',
     type: 'solo',
-    status: 'upcoming',
+    status: 'available',
     description: 'تفكيك الكلمة إلى حروف متباعدة',
   },
   {
@@ -100,7 +100,7 @@ export const GAME_REGISTRY = [
     command: '!صحح',
     slashCommand: '/صحح',
     type: 'solo',
-    status: 'upcoming',
+    status: 'available',
     description: 'تصحيح الخطأ الإملائي في الجملة',
   },
   {

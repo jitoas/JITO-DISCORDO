@@ -14,6 +14,8 @@ import { getRandomReverseWord, ARABIC_WORDS } from './src/games/datasets/words.j
 import { getRandomCountry, COUNTRIES } from './src/games/datasets/countries.js';
 import { getRandomHarfRound, CATEGORIES } from './src/games/datasets/categories.js';
 import { getRandomFastestPhrase } from './src/games/datasets/fastestPhrases.js';
+import { getRandomDisassembleWord, getDisassembledAnswer, normalizeDisassembleText } from './src/games/datasets/disassembleWords.js';
+import { getRandomCorrectSentence, normalizeCorrectSentence } from './src/games/datasets/correctSentences.js';
 import { reverseArabicText, checkReverseMatch, matchesArabicAnswer, checkHarfAnswer, normalizeArabic } from './src/utils/arabicNormalizer.js';
 import { checkXOWinner, isXOBoardFull } from './src/games/xoGame.js';
 import { GAME_REGISTRY, getAllGames, getAvailableGames } from './src/games/registry.js';
@@ -364,6 +366,91 @@ async function startServer() {
 
     res.json({
       correct: false,
+    });
+  });
+
+  // Simulator Endpoints: Test "Disassemble"
+  app.post('/api/simulate/disassemble/start', (req, res) => {
+    const word = getRandomDisassembleWord();
+    const expectedAnswer = getDisassembledAnswer(word);
+    res.json({
+      word,
+      expectedAnswer,
+      timerSeconds: config.games.disassemble?.timerSeconds || 15,
+      points: config.games.disassemble?.pointsPerWin || 10,
+    });
+  });
+
+  app.post('/api/simulate/disassemble/check', (req, res) => {
+    const { answer, targetWord, expectedAnswer, startTime, playerName, guildId = 'demo-server' } = req.body || {};
+    if (!answer || !targetWord) {
+      return res.status(400).json({ error: 'Missing answer or targetWord' });
+    }
+
+    const expected = expectedAnswer || getDisassembledAnswer(targetWord);
+    const userNorm = normalizeDisassembleText(String(answer));
+    const expectedNorm = normalizeDisassembleText(expected);
+
+    const isCorrect = userNorm === expectedNorm;
+    const timeTakenSec = startTime ? (Date.now() - Number(startTime)) / 1000 : 1.85;
+
+    if (isCorrect) {
+      const points = config.games.disassemble?.pointsPerWin || 10;
+      const user = db.addWin(guildId, playerName || 'مستخدم تجريبي', playerName || 'مستخدم تجريبي', 'disassemble', points);
+      return res.json({
+        correct: true,
+        expectedAnswer: expected,
+        timeTakenSec: Number(timeTakenSec.toFixed(2)),
+        points,
+        user,
+      });
+    }
+
+    res.json({
+      correct: false,
+      expectedAnswer: expected,
+    });
+  });
+
+  // Simulator Endpoints: Test "Correct"
+  app.post('/api/simulate/correct/start', (req, res) => {
+    const item = getRandomCorrectSentence();
+    res.json({
+      incorrectSentence: item.incorrect,
+      expectedAnswer: item.correct,
+      explanation: item.explanation,
+      timerSeconds: config.games.correct?.timerSeconds || 15,
+      points: config.games.correct?.pointsPerWin || 10,
+    });
+  });
+
+  app.post('/api/simulate/correct/check', (req, res) => {
+    const { answer, expectedAnswer, startTime, playerName, guildId = 'demo-server' } = req.body || {};
+    if (!answer || !expectedAnswer) {
+      return res.status(400).json({ error: 'Missing answer or expectedAnswer' });
+    }
+
+    const userNorm = normalizeCorrectSentence(String(answer));
+    const expectedNorm = normalizeCorrectSentence(String(expectedAnswer));
+
+    const isCorrect = userNorm === expectedNorm;
+    const timeTakenSec = startTime ? (Date.now() - Number(startTime)) / 1000 : 1.92;
+
+    if (isCorrect) {
+      const points = config.games.correct?.pointsPerWin || 10;
+      const user = db.addWin(guildId, playerName || 'مستخدم تجريبي', playerName || 'مستخدم تجريبي', 'correct', points);
+      return res.json({
+        correct: true,
+        expectedAnswer,
+        timeTakenSec: Number(timeTakenSec.toFixed(2)),
+        points,
+        user,
+      });
+    }
+
+    res.json({
+      correct: false,
+      expectedAnswer,
     });
   });
 
