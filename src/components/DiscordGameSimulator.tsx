@@ -19,13 +19,16 @@ interface SimulatorProps {
 }
 
 export const DiscordGameSimulator: React.FC<SimulatorProps> = ({ onWinRecorded }) => {
-  const [gameMode, setGameMode] = useState<'reverse' | 'flags' | 'harf' | 'xo'>('reverse');
+  const [gameMode, setGameMode] = useState<'reverse' | 'flags' | 'harf' | 'guess_number' | 'button' | 'xo'>('reverse');
   const [gameState, setGameState] = useState<'idle' | 'running' | 'won' | 'timeout'>('idle');
   
   // Game Questions
   const [reverseQ, setReverseQ] = useState<ReverseQuestion | null>(null);
   const [flagQ, setFlagQ] = useState<FlagQuestion | null>(null);
   const [harfQ, setHarfQ] = useState<{ letter: string; category: string; timerSeconds: number; points: number; sampleValidAnswers?: string[] } | null>(null);
+  const [guessQ, setGuessQ] = useState<{ secretNumber: number; timerSeconds: number; points: number } | null>(null);
+  const [guessAttemptsCount, setGuessAttemptsCount] = useState<number>(0);
+  const [buttonQ, setButtonQ] = useState<{ targetIndex: number; timerSeconds: number; points: number; startTime: number } | null>(null);
 
   // XO State
   const [xoBoard, setXOBoard] = useState<Array<string | null>>(Array(9).fill(null));
@@ -53,7 +56,7 @@ export const DiscordGameSimulator: React.FC<SimulatorProps> = ({ onWinRecorded }
   const [streak, setStreak] = useState(0);
 
   // Chat message log simulation
-  const [chatLog, setChatLog] = useState<Array<{ sender: 'bot' | 'user' | 'system'; text?: string; embed?: any; time: string; isXO?: boolean }>>([]);
+  const [chatLog, setChatLog] = useState<Array<{ sender: 'bot' | 'user' | 'system'; text?: string; embed?: any; time: string; isXO?: boolean; isButtonGame?: boolean }>>([]);
 
   // Clear timer helper
   const clearActiveTimer = () => {
@@ -239,6 +242,155 @@ export const DiscordGameSimulator: React.FC<SimulatorProps> = ({ onWinRecorded }
     ]);
   };
 
+  // Start "خمن الرقم" round
+  const startGuessNumberRound = async () => {
+    try {
+      clearActiveTimer();
+      isRoundEndedRef.current = false;
+      setGameState('idle');
+      setUserInput('');
+      setLockedPlayers([]);
+      setFeedback(null);
+      setGuessAttemptsCount(0);
+
+      const res = await fetch('/api/simulate/guess-number/random');
+      const data = await res.json();
+
+      setGuessQ(data);
+      const timerSec = data.timerSeconds || 60;
+      setInitialTime(timerSec);
+      setTimeLeft(timerSec);
+      setGameState('running');
+
+      const now = new Date().toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' });
+      setChatLog((prev) => [
+        ...prev,
+        {
+          sender: 'bot',
+          embed: {
+            title: '🎯 خمن الرقم',
+            description: `حاول تخمين الرقم السري!\nالنطاق: **1 - 100**\n\n⏱️ لديك **${timerSec}** ثانية.`,
+            color: 'border-rose-500 bg-rose-950/20 text-rose-200',
+          },
+          time: now,
+        },
+      ]);
+    } catch (err) {
+      console.error('Error starting guess number round:', err);
+    }
+  };
+
+  // Start a new Button Game Round
+  const startButtonRound = async () => {
+    try {
+      clearActiveTimer();
+      isRoundEndedRef.current = false;
+      setGameState('idle');
+      setUserInput('');
+      setLockedPlayers([]);
+      setFeedback(null);
+
+      const res = await fetch('/api/simulate/button/start');
+      const data = await res.json();
+
+      const startTime = Date.now();
+      setButtonQ({ ...data, startTime });
+      const timerSec = data.timerSeconds || 10;
+      setInitialTime(timerSec);
+      setTimeLeft(timerSec);
+      setGameState('running');
+
+      const now = new Date().toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' });
+      setChatLog((prev) => [
+        ...prev,
+        {
+          sender: 'bot',
+          isButtonGame: true,
+          embed: {
+            title: '🔘 اضغط الزر الصحيح!',
+            description: `اضغط على الزر الصحيح بأسرع وقت.\n\n[ 🔵 ]  [ 🟢 ]  [ 🟡 ]  [ 🔴 ]\n\nزر واحد فقط هو الصحيح.\n⏱️ لديك **${timerSec}** ثوانٍ.\n👤 المسموح له باللعب: <@${playerName}>`,
+            color: 'border-blue-500 bg-blue-950/20 text-blue-200',
+          },
+          time: now,
+        },
+      ]);
+    } catch (err) {
+      console.error('Error starting button round:', err);
+    }
+  };
+
+  // Simulator Button Click Handler
+  const handleSimButtonClick = async (clickedIndex: number) => {
+    if (gameState !== 'running' || isRoundEndedRef.current || !buttonQ) return;
+    isRoundEndedRef.current = true;
+    clearActiveTimer();
+
+    const now = new Date().toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' });
+
+    try {
+      const res = await fetch('/api/simulate/button/check', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          clickedIndex,
+          targetIndex: buttonQ.targetIndex,
+          startTime: buttonQ.startTime,
+          playerName,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (data.correct) {
+        setGameState('won');
+        setSessionPoints((p) => p + data.points);
+        setSessionWins((w) => w + 1);
+        setStreak((s) => s + 1);
+        setFeedback({
+          isCorrect: true,
+          text: `🔘 أحسنت! ضغطت الزر الصحيح في ${data.timeTakenSec} ثانية (+${data.points} نقاط)`,
+        });
+
+        if (onWinRecorded) onWinRecorded();
+
+        setChatLog((prev) => [
+          ...prev,
+          {
+            sender: 'bot',
+            embed: {
+              title: '🔘 أحسنت!',
+              description: `🏆 <@${playerName}>\n\nضغطت الزر الصحيح!\n\n⚡ الوقت: **${data.timeTakenSec} ثانية**\n⭐ **+${data.points} نقاط**`,
+              color: 'border-amber-500 bg-amber-950/20 text-amber-200',
+            },
+            time: now,
+          },
+        ]);
+      } else {
+        setGameState('timeout');
+        setStreak(0);
+        setFeedback({
+          isCorrect: false,
+          text: `❌ خطأ! ضغطت الزر الخاطئ. تنتهي الجولة مباشرة.`,
+        });
+
+        setChatLog((prev) => [
+          ...prev,
+          {
+            sender: 'bot',
+            embed: {
+              title: '❌ خطأ!',
+              description: `ضغطت الزر الخاطئ.\n\nتنتهي الجولة مباشرة.`,
+              color: 'border-rose-500 bg-rose-950/20 text-rose-200',
+            },
+            time: now,
+          },
+        ]);
+      }
+    } catch (err) {
+      console.error('Error handling button click:', err);
+    }
+  };
+
   // Start whichever game is selected
   const startCurrentGame = () => {
     if (gameMode === 'reverse') {
@@ -247,6 +399,10 @@ export const DiscordGameSimulator: React.FC<SimulatorProps> = ({ onWinRecorded }
       startFlagsRound();
     } else if (gameMode === 'harf') {
       startHarfRound();
+    } else if (gameMode === 'guess_number') {
+      startGuessNumberRound();
+    } else if (gameMode === 'button') {
+      startButtonRound();
     } else {
       startXORound();
     }
@@ -385,7 +541,23 @@ export const DiscordGameSimulator: React.FC<SimulatorProps> = ({ onWinRecorded }
 
     let correctText = '';
     let gameTitle = '';
-    if (gameMode === 'reverse' && reverseQ) {
+    if (gameMode === 'guess_number' && guessQ) {
+      setFeedback({
+        isCorrect: false,
+        text: '⏰ انتهى الوقت!',
+        details: `الرقم الصحيح كان: ${guessQ.secretNumber}`,
+      });
+
+      setChatLog((prev) => [
+        ...prev,
+        {
+          sender: 'bot',
+          text: `⏰ **انتهى الوقت!**\n\nلم يتمكن أحد من تخمين الرقم.\n\nالرقم الصحيح كان: **${guessQ.secretNumber}**`,
+          time: now,
+        },
+      ]);
+      return;
+    } else if (gameMode === 'reverse' && reverseQ) {
       correctText = reverseQ.reversed;
       gameTitle = 'لعبة اعكس 🔄';
     } else if (gameMode === 'flags' && flagQ) {
@@ -617,6 +789,77 @@ export const DiscordGameSimulator: React.FC<SimulatorProps> = ({ onWinRecorded }
       } catch (err) {
         console.error(err);
       }
+    } else if (gameMode === 'guess_number' && guessQ) {
+      try {
+        const guess = parseInt(trimmed, 10);
+        if (isNaN(guess) || guess < 1 || guess > 100) {
+          setUserInput('');
+          setFeedback({
+            isCorrect: false,
+            text: '⚠️ يرجى إدخال رقم بين 1 و 100!',
+          });
+          return;
+        }
+
+        const nextAttempts = guessAttemptsCount + 1;
+        setGuessAttemptsCount(nextAttempts);
+
+        const res = await fetch('/api/simulate/guess-number/check', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            input: guess,
+            secretNumber: guessQ.secretNumber,
+            playerName,
+          }),
+        });
+        const result = await res.json();
+
+        if (result.correct) {
+          if (isRoundEndedRef.current) return;
+          isRoundEndedRef.current = true;
+          clearActiveTimer();
+
+          setGameState('won');
+          setSessionPoints((p) => p + result.points);
+          setSessionWins((w) => w + 1);
+          setStreak((s) => s + 1);
+          setFeedback({
+            isCorrect: true,
+            text: `👑 فاز باللعبة! (+${result.points} نقطة)`,
+          });
+
+          // Send exact winner message:
+          setChatLog((prev) => [
+            ...prev,
+            {
+              sender: 'bot',
+              text: `🏆 **فاز @${playerName}!**\n\nلقد خمنت الرقم الصحيح بعد **${nextAttempts} محاولة**.\n\nالرقم كان: **${guessQ.secretNumber}**`,
+              time: now,
+            },
+          ]);
+
+          if (onWinRecorded) onWinRecorded();
+        } else {
+          setUserInput('');
+          const hintText = result.result === 'larger' ? '> 🔼 الرقم أكبر!' : '> 🔽 الرقم أصغر!';
+          setFeedback({
+            isCorrect: false,
+            text: hintText,
+            details: `تخمينك كان ${guess}. استمر بالتخمين!`,
+          });
+          setChatLog((prev) => [
+            ...prev,
+            {
+              sender: 'bot',
+              text: hintText,
+              time: now,
+            },
+          ]);
+        }
+      } catch (err) {
+        console.error(err);
+      }
     }
   };
 
@@ -668,7 +911,7 @@ export const DiscordGameSimulator: React.FC<SimulatorProps> = ({ onWinRecorded }
         </div>
 
         {/* Game Mode Switcher Buttons */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mt-6 pt-6 border-t border-slate-800">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mt-6 pt-6 border-t border-slate-800">
           <button
             id="sim-mode-reverse-btn"
             onClick={() => {
@@ -676,25 +919,25 @@ export const DiscordGameSimulator: React.FC<SimulatorProps> = ({ onWinRecorded }
               setGameState('idle');
               setFeedback(null);
             }}
-            className={`p-4 rounded-xl border text-right transition-all flex items-center justify-between ${
+            className={`p-3.5 rounded-xl border text-right transition-all flex items-center justify-between ${
               gameMode === 'reverse'
                 ? 'bg-purple-950/40 border-purple-500 text-white shadow-lg shadow-purple-900/20 ring-1 ring-purple-500'
                 : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-700'
             }`}
           >
             <div>
-              <div className="flex items-center gap-2 mb-1">
-                <span className="text-xl">🔄</span>
-                <span className="font-bold text-base text-white">لعبة اعكس</span>
+              <div className="flex items-center gap-1.5 mb-1">
+                <span className="text-lg">🔄</span>
+                <span className="font-bold text-sm text-white">اعكس</span>
               </div>
-              <p className="text-xs text-slate-400">
-                <code className="text-purple-400 font-mono">/reverse</code> • <code className="text-purple-400 font-mono">!اعكس</code>
+              <p className="text-[11px] text-slate-400">
+                <code className="text-purple-400 font-mono">!اعكس</code>
               </p>
             </div>
-            <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${
+            <div className={`w-3.5 h-3.5 rounded-full border-2 flex items-center justify-center ${
               gameMode === 'reverse' ? 'border-purple-400 bg-purple-500' : 'border-slate-600'
             }`}>
-              {gameMode === 'reverse' && <div className="w-1.5 h-1.5 bg-white rounded-full" />}
+              {gameMode === 'reverse' && <div className="w-1 h-1 bg-white rounded-full" />}
             </div>
           </button>
 
@@ -705,25 +948,25 @@ export const DiscordGameSimulator: React.FC<SimulatorProps> = ({ onWinRecorded }
               setGameState('idle');
               setFeedback(null);
             }}
-            className={`p-4 rounded-xl border text-right transition-all flex items-center justify-between ${
+            className={`p-3.5 rounded-xl border text-right transition-all flex items-center justify-between ${
               gameMode === 'flags'
                 ? 'bg-sky-950/40 border-sky-500 text-white shadow-lg shadow-sky-900/20 ring-1 ring-sky-500'
                 : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-700'
             }`}
           >
             <div>
-              <div className="flex items-center gap-2 mb-1">
-                <span className="text-xl">🚩</span>
-                <span className="font-bold text-base text-white">لعبة أعلام</span>
+              <div className="flex items-center gap-1.5 mb-1">
+                <span className="text-lg">🚩</span>
+                <span className="font-bold text-sm text-white">أعلام</span>
               </div>
-              <p className="text-xs text-slate-400">
-                <code className="text-sky-400 font-mono">/flags</code> • <code className="text-sky-400 font-mono">!اعلام</code>
+              <p className="text-[11px] text-slate-400">
+                <code className="text-sky-400 font-mono">!اعلام</code>
               </p>
             </div>
-            <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${
+            <div className={`w-3.5 h-3.5 rounded-full border-2 flex items-center justify-center ${
               gameMode === 'flags' ? 'border-sky-400 bg-sky-500' : 'border-slate-600'
             }`}>
-              {gameMode === 'flags' && <div className="w-1.5 h-1.5 bg-white rounded-full" />}
+              {gameMode === 'flags' && <div className="w-1 h-1 bg-white rounded-full" />}
             </div>
           </button>
 
@@ -734,25 +977,83 @@ export const DiscordGameSimulator: React.FC<SimulatorProps> = ({ onWinRecorded }
               setGameState('idle');
               setFeedback(null);
             }}
-            className={`p-4 rounded-xl border text-right transition-all flex items-center justify-between ${
+            className={`p-3.5 rounded-xl border text-right transition-all flex items-center justify-between ${
               gameMode === 'harf'
                 ? 'bg-emerald-950/40 border-emerald-500 text-white shadow-lg shadow-emerald-900/20 ring-1 ring-emerald-500'
                 : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-700'
             }`}
           >
             <div>
-              <div className="flex items-center gap-2 mb-1">
-                <span className="text-xl">🔤</span>
-                <span className="font-bold text-base text-white">لعبة حرف</span>
+              <div className="flex items-center gap-1.5 mb-1">
+                <span className="text-lg">🔤</span>
+                <span className="font-bold text-sm text-white">حرف</span>
               </div>
-              <p className="text-xs text-slate-400">
-                <code className="text-emerald-400 font-mono">/حرف</code> • <code className="text-emerald-400 font-mono">!حرف</code>
+              <p className="text-[11px] text-slate-400">
+                <code className="text-emerald-400 font-mono">!حرف</code>
               </p>
             </div>
-            <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${
+            <div className={`w-3.5 h-3.5 rounded-full border-2 flex items-center justify-center ${
               gameMode === 'harf' ? 'border-emerald-400 bg-emerald-500' : 'border-slate-600'
             }`}>
-              {gameMode === 'harf' && <div className="w-1.5 h-1.5 bg-white rounded-full" />}
+              {gameMode === 'harf' && <div className="w-1 h-1 bg-white rounded-full" />}
+            </div>
+          </button>
+
+          <button
+            id="sim-mode-guess-btn"
+            onClick={() => {
+              setGameMode('guess_number');
+              setGameState('idle');
+              setFeedback(null);
+            }}
+            className={`p-3.5 rounded-xl border text-right transition-all flex items-center justify-between ${
+              gameMode === 'guess_number'
+                ? 'bg-rose-950/40 border-rose-500 text-white shadow-lg shadow-rose-900/20 ring-1 ring-rose-500'
+                : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-700'
+            }`}
+          >
+            <div>
+              <div className="flex items-center gap-1.5 mb-1">
+                <span className="text-lg">🎯</span>
+                <span className="font-bold text-sm text-white">خمن الرقم</span>
+              </div>
+              <p className="text-[11px] text-slate-400">
+                <code className="text-rose-400 font-mono">!خمن</code>
+              </p>
+            </div>
+            <div className={`w-3.5 h-3.5 rounded-full border-2 flex items-center justify-center ${
+              gameMode === 'guess_number' ? 'border-rose-400 bg-rose-500' : 'border-slate-600'
+            }`}>
+              {gameMode === 'guess_number' && <div className="w-1 h-1 bg-white rounded-full" />}
+            </div>
+          </button>
+
+          <button
+            id="sim-mode-button-btn"
+            onClick={() => {
+              setGameMode('button');
+              setGameState('idle');
+              setFeedback(null);
+            }}
+            className={`p-3.5 rounded-xl border text-right transition-all flex items-center justify-between ${
+              gameMode === 'button'
+                ? 'bg-blue-950/40 border-blue-500 text-white shadow-lg shadow-blue-900/20 ring-1 ring-blue-500'
+                : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-700'
+            }`}
+          >
+            <div>
+              <div className="flex items-center gap-1.5 mb-1">
+                <span className="text-lg">🔘</span>
+                <span className="font-bold text-sm text-white">زر</span>
+              </div>
+              <p className="text-[11px] text-slate-400">
+                <code className="text-blue-400 font-mono">!زر</code>
+              </p>
+            </div>
+            <div className={`w-3.5 h-3.5 rounded-full border-2 flex items-center justify-center ${
+              gameMode === 'button' ? 'border-blue-400 bg-blue-500' : 'border-slate-600'
+            }`}>
+              {gameMode === 'button' && <div className="w-1 h-1 bg-white rounded-full" />}
             </div>
           </button>
 
@@ -970,7 +1271,33 @@ export const DiscordGameSimulator: React.FC<SimulatorProps> = ({ onWinRecorded }
                           {msg.embed.description}
                         </p>
 
-                        {/* Interactive Discord Components (Buttons) for XO */}
+                        {/* Interactive Discord Components (Buttons) for Button Game */}
+                        {msg.isButtonGame && (
+                          <div className="pt-2 border-t border-slate-700/40">
+                            <div className="text-xs text-slate-300 font-semibold mb-2">
+                              أزرار التفاعل (Discord ActionRow):
+                            </div>
+                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                              {[
+                                { idx: 0, label: 'أزرق', emoji: '🔵', bg: 'bg-blue-600 hover:bg-blue-500' },
+                                { idx: 1, label: 'أخضر', emoji: '🟢', bg: 'bg-emerald-600 hover:bg-emerald-500' },
+                                { idx: 2, label: 'أصفر', emoji: '🟡', bg: 'bg-slate-700 hover:bg-slate-600' },
+                                { idx: 3, label: 'أحمر', emoji: '🔴', bg: 'bg-rose-600 hover:bg-rose-500' },
+                              ].map((btn) => (
+                                <button
+                                  key={btn.idx}
+                                  id={`sim-button-game-btn-${btn.idx}`}
+                                  onClick={() => handleSimButtonClick(btn.idx)}
+                                  disabled={gameState !== 'running'}
+                                  className={`px-3 py-2.5 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 shadow-md text-white transition-all ${btn.bg} disabled:opacity-50 disabled:cursor-not-allowed`}
+                                >
+                                  <span>{btn.emoji}</span>
+                                  <span>{btn.label}</span>
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        )}
                         {msg.isXO && (
                           <div className="pt-2 border-t border-slate-700/40">
                             <div className="text-xs text-slate-300 font-semibold mb-2 flex items-center justify-between">
@@ -1036,15 +1363,15 @@ export const DiscordGameSimulator: React.FC<SimulatorProps> = ({ onWinRecorded }
               </div>
             )}
 
-            {gameMode === 'xo' ? (
+            {gameMode === 'xo' || gameMode === 'button' ? (
               <div className="flex items-center justify-between bg-[#383A40] p-3 rounded-xl text-xs text-slate-300">
                 <div className="flex items-center gap-2">
-                  <span className="text-amber-400 font-bold">🎮 لعبة XO:</span>
-                  <span>العب بالضغط مباشرة على الأزرار في لوحة الشات بالأعلى!</span>
+                  <span className="text-blue-400 font-bold">🔘 لعبة {gameMode === 'button' ? 'زر' : 'XO'}:</span>
+                  <span>العب بالضغط السريع مباشرة على الأزرار الملونة في الشات بالأعلى!</span>
                 </div>
                 {gameState === 'running' && (
-                  <span className="bg-slate-800 px-3 py-1 rounded-lg font-bold text-white">
-                    الدور الحالي: {xoTurn === 'X' ? `❌ ${playerName}` : `⭕ ${player2Name}`}
+                  <span className="bg-slate-800 px-3 py-1 rounded-lg font-bold text-amber-300 animate-pulse">
+                    ⏱️ المؤقت جارٍ: {timeLeft} ث
                   </span>
                 )}
               </div>
@@ -1108,7 +1435,7 @@ export const DiscordGameSimulator: React.FC<SimulatorProps> = ({ onWinRecorded }
           <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl">
             <h3 className="text-base font-bold text-white flex items-center gap-2 mb-3">
               <HelpCircle className="w-4 h-4 text-indigo-400" />
-              قواعد لعبة {gameMode === 'reverse' ? 'اعكس (Reverse)' : gameMode === 'flags' ? 'أعلام (Flags)' : gameMode === 'harf' ? 'حرف (Letter)' : 'XO (Tic-Tac-Toe)'}
+              قواعد لعبة {gameMode === 'reverse' ? 'اعكس (Reverse)' : gameMode === 'flags' ? 'أعلام (Flags)' : gameMode === 'harf' ? 'حرف (Letter)' : gameMode === 'button' ? 'زر (Button)' : 'XO (Tic-Tac-Toe)'}
             </h3>
 
             {gameMode === 'reverse' ? (
@@ -1167,6 +1494,24 @@ export const DiscordGameSimulator: React.FC<SimulatorProps> = ({ onWinRecorded }
                 <div className="pt-2 border-t border-slate-800 text-[11px] text-slate-400">
                   ⏱️ <strong>المؤقت الافتراضي:</strong> 15 ثانية.<br />
                   🏆 <strong>النقاط:</strong> 10 نقاط لكل فوز.
+                </div>
+              </div>
+            ) : gameMode === 'button' ? (
+              <div className="text-xs text-slate-300 space-y-3 leading-relaxed">
+                <p className="bg-blue-950/30 border border-blue-800/40 p-3 rounded-xl text-blue-200">
+                  🔘 <strong>فكرة اللعبة:</strong> يرسل البوت مجموعة من الأزرار الملونة (أزرق، أخضر، أصفر، أحمر)، والمطلوب الضغط على الزر الصحيح بأسرع وقت!
+                </p>
+                <div className="space-y-1.5">
+                  <p className="font-semibold text-slate-200">✨ القواعد والتفاعل:</p>
+                  <ul className="list-disc list-inside text-slate-400 space-y-1">
+                    <li><strong>لعبة فردية:</strong> يحق للاعب الذي شغل الأمر الضغط على الزر فقط.</li>
+                    <li><strong>ضغط واحد:</strong> الضغط على الزر الصحيح يمنحك الفوز والنقاط فوراً.</li>
+                    <li><strong>الضغط الخاطئ:</strong> ينهي الجولة مباشرة بدون نقاط.</li>
+                  </ul>
+                </div>
+                <div className="pt-2 border-t border-slate-800 text-[11px] text-slate-400">
+                  ⏱️ <strong>المؤقت الافتراضي:</strong> 10 ثوانٍ.<br />
+                  🏆 <strong>النقاط:</strong> +10 نقاط عند الفوز.
                 </div>
               </div>
             ) : (

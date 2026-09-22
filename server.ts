@@ -244,6 +244,92 @@ async function startServer() {
     });
   });
 
+  // Simulator Endpoints: Test "خمن الرقم"
+  app.get('/api/simulate/guess-number/random', (req, res) => {
+    const secretNumber = Math.floor(Math.random() * 100) + 1;
+    res.json({
+      secretNumber,
+      min: 1,
+      max: 100,
+      timerSeconds: config.games.guessNumber?.timerSeconds || 60,
+      points: config.games.guessNumber?.pointsPerWin || 10,
+    });
+  });
+
+  app.post('/api/simulate/guess-number/check', (req, res) => {
+    const { input, secretNumber, playerName, guildId = 'demo-server' } = req.body || {};
+    if (!input || secretNumber === undefined) {
+      return res.status(400).json({ error: 'Missing input or secretNumber' });
+    }
+
+    const guess = parseInt(String(input).trim(), 10);
+    if (isNaN(guess) || guess < 1 || guess > 100) {
+      return res.status(400).json({ error: 'Invalid range' });
+    }
+
+    const target = Number(secretNumber);
+    if (guess === target) {
+      const points = config.games.guessNumber?.pointsPerWin || 10;
+      const user = db.addWin(guildId, playerName || 'مستخدم تجريبي', playerName || 'مستخدم تجريبي', 'guess_number', points);
+      return res.json({
+        result: 'equal',
+        correct: true,
+        secretNumber: target,
+        points,
+        user,
+      });
+    } else if (guess < target) {
+      return res.json({
+        result: 'larger',
+        correct: false,
+        hint: '> 🔼 الرقم أكبر!',
+      });
+    } else {
+      return res.json({
+        result: 'smaller',
+        correct: false,
+        hint: '> 🔽 الرقم أصغر!',
+      });
+    }
+  });
+
+  // Simulator Endpoints: Test "زر"
+  app.get('/api/simulate/button/start', (req, res) => {
+    const targetIndex = Math.floor(Math.random() * 4);
+    res.json({
+      targetIndex,
+      timerSeconds: config.games.button?.timerSeconds || 10,
+      points: config.games.button?.pointsPerWin || 10,
+    });
+  });
+
+  app.post('/api/simulate/button/check', (req, res) => {
+    const { clickedIndex, targetIndex, startTime, playerName, guildId = 'demo-server' } = req.body || {};
+    if (clickedIndex === undefined || targetIndex === undefined) {
+      return res.status(400).json({ error: 'Missing clickedIndex or targetIndex' });
+    }
+
+    const isCorrect = Number(clickedIndex) === Number(targetIndex);
+    const timeTakenSec = startTime ? (Date.now() - Number(startTime)) / 1000 : 0.82;
+
+    if (isCorrect) {
+      const points = config.games.button?.pointsPerWin || 10;
+      const user = db.addWin(guildId, playerName || 'مستخدم تجريبي', playerName || 'مستخدم تجريبي', 'button', points);
+      return res.json({
+        correct: true,
+        timeTakenSec: Number(timeTakenSec.toFixed(2)),
+        points,
+        user,
+      });
+    }
+
+    res.json({
+      correct: false,
+      clickedIndex,
+      targetIndex,
+    });
+  });
+
   // Simulator Endpoints: Test "XO"
   app.post('/api/simulate/xo/move', (req, res) => {
     try {

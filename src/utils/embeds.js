@@ -62,6 +62,22 @@ export const embeds = {
   },
 
   /**
+   * Embed for لعبة خمن الرقم (Guess the Secret Number Game)
+   */
+  guessNumberGame: (timerSeconds = 60) => {
+    return new EmbedBuilder()
+      .setColor(config.colors.gameGuessNumber || config.colors.primary)
+      .setTitle('🎯 خمن الرقم')
+      .setDescription(
+        `حاول تخمين الرقم السري!\n` +
+        `النطاق: **1 - 100**\n\n` +
+        `⏱️ لديك **${timerSeconds}** ثانية.`
+      )
+      .setFooter({ text: 'بوت جعفر • خمن الرقم من 1 إلى 100' })
+      .setTimestamp();
+  },
+
+  /**
    * Embed for لعبة XO (Tic-Tac-Toe Lobby)
    */
   xoLobby: (hostUser, challengedUser = null) => {

@@ -34,6 +34,7 @@ export const config = {
     gameFlags: 0x3498DB,   // Sky Blue for Flags game
     gameXO: 0xE67E22,      // Warm Orange for XO game
     gameHarf: 0x2ECC71,    // Emerald Green for Harf game
+    gameGuessNumber: 0xE74C3C, // Crimson Red for Guess Number game
   },
 
   // Game Settings (Centralized for future dashboard control)
@@ -73,6 +74,25 @@ export const config = {
       id: 'harf',
       description: 'أسرع لاعب يكتب كلمة تبدأ بالحرف المطلوب وضمن التصنيف المحدد!',
       timerSeconds: 15, // Default countdown: 15 seconds
+      pointsPerWin: 10,
+    },
+
+    // لعبة خمن الرقم (Guess the secret number game)
+    guessNumber: {
+      name: 'خمن الرقم',
+      id: 'guess_number',
+      description: 'تخمين الرقم السري بين 1 و 100 في غضون 60 ثانية!',
+      timerSeconds: 60,
+      cooldownSeconds: 2,
+      pointsPerWin: 10,
+    },
+
+    // لعبة زر (Button speed click game)
+    button: {
+      name: 'زر',
+      id: 'button',
+      description: 'الضغط السريع على الزر الصحيح بأسرع وقت!',
+      timerSeconds: 10,
       pointsPerWin: 10,
     },
   },
